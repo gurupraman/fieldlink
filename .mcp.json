@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "fieldlink": {
+      "command": "go",
+      "args": ["run", "./cmd/fieldlink", "serve", "--config", "./examples/clients/dev.yaml"]
+    }
+  }
+}

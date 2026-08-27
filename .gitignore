@@ -1,0 +1,15 @@
+/bin/
+/dist/
+/fieldlink
+*.exe
+
+# Local dev artifacts — never commit secrets, grants, or audit logs
+*.log
+audit.jsonl
+grant.yaml
+grant.yaml.sig
+trusted.pub
+trusted.key
+.env
+
+.DS_Store
