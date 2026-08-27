@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write # required for cosign keyless (OIDC) signing
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Cross-compile (CGO_ENABLED=0)
+        env:
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          build() {
+            local goos=$1 goarch=$2 goarm=$3 name=$4
+            GOOS=$goos GOARCH=$goarch GOARM=$goarm \
+              go build -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" \
+              -o "dist/$name" ./cmd/fieldlink
+          }
+          build linux amd64 "" fieldlink-linux-amd64
+          build linux arm64 "" fieldlink-linux-arm64
+          build linux arm 7  fieldlink-linux-armv7
+          ls -la dist/
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum fieldlink-* > checksums.txt
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/fieldlink.sbom.spdx.json
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign release artifacts (keyless, via GitHub OIDC)
+        working-directory: dist
+        run: |
+          for f in fieldlink-* checksums.txt fieldlink.sbom.spdx.json; do
+            cosign sign-blob --yes "$f" \
+              --output-signature "$f.sig" \
+              --output-certificate "$f.pem"
+          done
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

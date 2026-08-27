@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt found unformatted files:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test ./... -race
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            goarm: ""
+          - goos: linux
+            goarch: arm64
+            goarm: ""
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+
+      - name: Build (CGO_ENABLED=0, matches design.md's non-negotiable constraint)
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+        run: |
+          go build -ldflags="-s -w" -o fieldlink-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }} ./cmd/fieldlink
+          file fieldlink-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
+          ls -la fieldlink-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
