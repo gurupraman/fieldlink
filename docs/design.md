@@ -822,9 +822,9 @@ distribution work at all.
 
 **Non-technical**
 
-8. **Employment IP assignment must be resolved before the first public commit.**
-   It is the only item on this list that can retroactively invalidate everything
-   above.
+8. ~~Employment IP assignment must be resolved before the first public commit.~~
+   Resolved: the author's role does not fall under IP assignment, so this does
+   not apply.
 
 ---
 

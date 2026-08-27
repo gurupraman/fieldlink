@@ -94,4 +94,6 @@ own a PLC, and it is what makes the README reproducible.
 
 ## Open blocker
 
-Employment IP assignment has not been reviewed. Do not push anything public until it is.
+None. Employment IP assignment was flagged in the original design as a gate on
+publishing; the author's role does not fall under IP assignment, so this does not
+apply and is not a blocker on pushing publicly.
