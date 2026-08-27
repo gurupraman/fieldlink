@@ -114,14 +114,28 @@ type Register struct {
 }
 
 type ServerConfig struct {
-	// Transport is "stdio" or "http". Only stdio is implemented in Week 1.
+	// Transport is "stdio" or "http".
 	Transport string     `yaml:"transport"`
 	HTTP      HTTPConfig `yaml:"http"`
 }
 
 type HTTPConfig struct {
-	Bind           string   `yaml:"bind"`
+	// Bind defaults to "127.0.0.1:8765" if empty. A non-loopback address
+	// requires --allow-remote on the command line (design.md §4.1) —
+	// config alone can't widen this, so a stolen config file can't turn
+	// into a network-exposed server without also getting the CLI flag.
+	Bind string `yaml:"bind"`
+	// AllowedOrigins are exact origins ("scheme://host[:port]"), not
+	// patterns — net/http's CrossOriginProtection (what enforces this)
+	// only supports exact matches, unlike the "http://localhost:*"
+	// wildcard design.md's own example config shows. List every port you
+	// actually use.
 	AllowedOrigins []string `yaml:"allowed_origins"`
+	// BearerTokenEnv names an environment variable holding the bearer
+	// token required on every request once --allow-remote is set
+	// (design.md §4.1: "no unauthenticated remote mode"). Never set the
+	// token inline in config, same discipline as datasource DSNs.
+	BearerTokenEnv string `yaml:"bearer_token_env"`
 }
 
 type GrantConfig struct {
@@ -152,6 +166,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Server.Transport == "" {
 		cfg.Server.Transport = "stdio"
+	}
+	if cfg.Server.Transport == "http" && cfg.Server.HTTP.Bind == "" {
+		cfg.Server.HTTP.Bind = "127.0.0.1:8765"
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {

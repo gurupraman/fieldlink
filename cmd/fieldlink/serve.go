@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -15,21 +16,23 @@ import (
 
 func newServeCmd() *cobra.Command {
 	var configPath string
+	var allowRemote bool
 
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the FieldLink MCP server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runServe(cmd.Context(), configPath)
+			return runServe(cmd.Context(), configPath, allowRemote)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to config.yaml (required)")
 	cmd.MarkFlagRequired("config")
+	cmd.Flags().BoolVar(&allowRemote, "allow-remote", false, "allow the http transport to bind a non-loopback address (requires a bearer token in config)")
 
 	return cmd
 }
 
-func runServe(ctx context.Context, configPath string) error {
+func runServe(ctx context.Context, configPath string, allowRemote bool) error {
 	// slog's default handler writes to stderr, not stdout — required by
 	// the stdio transport, which uses stdout exclusively for JSON-RPC.
 	logger := slog.Default()
@@ -39,8 +42,8 @@ func runServe(ctx context.Context, configPath string) error {
 		return fmt.Errorf("serve: %w", err)
 	}
 
-	if cfg.Server.Transport != "stdio" {
-		return fmt.Errorf("serve: transport %q not implemented yet; only \"stdio\" is available", cfg.Server.Transport)
+	if cfg.Server.Transport != "stdio" && cfg.Server.Transport != "http" {
+		return fmt.Errorf("serve: transport %q is not implemented; use \"stdio\" or \"http\"", cfg.Server.Transport)
 	}
 
 	logger.Info("starting fieldlink", "agent_id", cfg.AgentID, "transport", cfg.Server.Transport)
@@ -59,6 +62,20 @@ func runServe(ctx context.Context, configPath string) error {
 	}
 
 	s := fieldlinkmcp.New(eng, cfg)
+
+	if cfg.Server.Transport == "http" {
+		var token string
+		if cfg.Server.HTTP.BearerTokenEnv != "" {
+			token = os.Getenv(cfg.Server.HTTP.BearerTokenEnv)
+		}
+		return fieldlinkmcp.RunHTTP(ctx, s, fieldlinkmcp.HTTPOptions{
+			Bind:           cfg.Server.HTTP.Bind,
+			AllowRemote:    allowRemote,
+			BearerToken:    token,
+			AllowedOrigins: cfg.Server.HTTP.AllowedOrigins,
+			Logger:         logger,
+		})
+	}
 
 	return fieldlinkmcp.RunStdio(ctx, s)
 }
