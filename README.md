@@ -73,7 +73,7 @@ Every release ships checksums, an SBOM, and a cosign signature.
 |---|---|---|
 | Modbus TCP / RTU | `read_modbus` | Function codes 1–4. Symbolic register names from a register map. |
 | OPC-UA | `read_opcua` | Anonymous and username auth. Browse supported. |
-| SMB / NFS shares | `read_file`, `list_directory` | Pure-Go SMB2. No kernel mount, no root. |
+| SMB shares | `read_file`, `list_directory` | Pure-Go SMB2. No kernel mount, no root. Via `smb://<share-name>/<path>`. |
 | MSSQL, Oracle, Postgres | `query_database` | Named datasources only. `SELECT`/`WITH` only. |
 | Internal HTTP | `call_internal_http` | GET and HEAD, restricted to allow-listed CIDRs. |
 

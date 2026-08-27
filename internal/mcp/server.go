@@ -49,7 +49,7 @@ func New(eng policy.Engine, cfg *config.Config) *gosdk.Server {
 		Instructions: instructions,
 	})
 
-	fsExec := &fsexec.Executor{Policy: eng}
+	fsExec := &fsexec.Executor{Policy: eng, SMBShares: cfg.SMBShares}
 	modbusExec := modbusexec.NewExecutor(eng, cfg.Devices)
 	opcuaExec := opcuaexec.NewExecutor(eng, cfg.OPCUAEndpoints)
 	httpExec := &httpexec.Executor{Policy: eng}
@@ -69,9 +69,10 @@ func New(eng policy.Engine, cfg *config.Config) *gosdk.Server {
 		gosdk.AddTool(s, &gosdk.Tool{
 			Name:  "read_file",
 			Title: "Read file",
-			Description: "Read a file's contents. Read-only: this tool cannot write, " +
-				"create, or delete. Files larger than max_bytes return a SHA-256 " +
-				"digest instead of content.",
+			Description: "Read a file's contents, from the local filesystem or from a " +
+				"configured SMB share via smb://<share-name>/<path>. Read-only: this " +
+				"tool cannot write, create, or delete. Files larger than max_bytes " +
+				"return a SHA-256 digest instead of content.",
 			Annotations: &gosdk.ToolAnnotations{
 				ReadOnlyHint:    true,
 				DestructiveHint: boolPtr(false),
@@ -85,8 +86,8 @@ func New(eng policy.Engine, cfg *config.Config) *gosdk.Server {
 		gosdk.AddTool(s, &gosdk.Tool{
 			Name:  "list_directory",
 			Title: "List directory",
-			Description: "List entries in a directory, optionally filtered by glob " +
-				"and recursed. Read-only.",
+			Description: "List entries in a directory (local or smb://<share-name>/<path>), " +
+				"optionally filtered by glob and recursed. Read-only.",
 			Annotations: &gosdk.ToolAnnotations{
 				ReadOnlyHint:    true,
 				DestructiveHint: boolPtr(false),

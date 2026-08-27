@@ -11,11 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/gurupraman/fieldlink/internal/config"
 	"github.com/gurupraman/fieldlink/internal/policy"
 )
 
@@ -23,9 +26,16 @@ const defaultMaxBytes int64 = 1 << 20 // 1 MiB
 
 // Executor implements read_file and list_directory. Every call is checked
 // against Policy first; Executor never decides on its own that a path is
-// permitted.
+// permitted. A path of the form smb://<share-name>/<rel-path> is routed to
+// a configured SMB share (smb.go) instead of the local filesystem — same
+// two tools, per design.md's capability table ("SMB / NFS shares |
+// read_file, list_directory").
 type Executor struct {
-	Policy policy.Engine
+	Policy    policy.Engine
+	SMBShares map[string]config.SMBShare
+
+	smbMu    sync.Mutex
+	smbConns map[string]*smbConn
 }
 
 type ReadFileInput struct {
@@ -49,6 +59,10 @@ func (e *Executor) ReadFile(ctx context.Context, _ *mcp.CallToolRequest, in Read
 	maxBytes := in.MaxBytes
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxBytes
+	}
+
+	if strings.HasPrefix(in.Path, "smb://") {
+		return e.smbReadFile(ctx, in.Path, maxBytes)
 	}
 
 	resolved, err := resolveSafe(in.Path)
@@ -132,6 +146,10 @@ type ListDirectoryOutput struct {
 func (e *Executor) ListDirectory(ctx context.Context, _ *mcp.CallToolRequest, in ListDirectoryInput) (*mcp.CallToolResult, ListDirectoryOutput, error) {
 	if in.Path == "" {
 		return denied("path is required"), ListDirectoryOutput{}, nil
+	}
+
+	if strings.HasPrefix(in.Path, "smb://") {
+		return e.smbListDirectory(ctx, in.Path, in.Glob, in.Recursive)
 	}
 
 	resolved, err := resolveSafe(in.Path)

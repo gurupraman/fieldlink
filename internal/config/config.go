@@ -47,6 +47,7 @@ type OPCUAEndpoint struct {
 // tools fs.read/fs.list already register, not a separate capability.
 type SMBShare struct {
 	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"` // 0 means 445, the standard SMB port
 	Share       string `yaml:"share"`
 	UsernameEnv string `yaml:"username_env"`
 	PasswordEnv string `yaml:"password_env"`
