@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -22,27 +23,37 @@ type HTTPOptions struct {
 	// so a leaked or misconfigured config file can't silently turn into a
 	// network-exposed server.
 	AllowRemote bool
-	// BearerToken is required on every request once AllowRemote is true
-	// (design.md: "no unauthenticated remote mode"). Ignored (no auth
-	// required) when AllowRemote is false.
+	// BearerToken is a static shared-secret token required on every
+	// request once AllowRemote is true. Mutually exclusive with OAuth —
+	// set at most one.
 	BearerToken string
+	// OAuth, if set, validates access tokens against an external IdP
+	// instead of a static token. Mutually exclusive with BearerToken.
+	OAuth *OAuthOptions
 	// AllowedOrigins are exact origins allowed to make cross-origin
 	// requests (net/http's CrossOriginProtection — exact match only, see
 	// config.HTTPConfig.AllowedOrigins).
 	AllowedOrigins []string
-	Logger         *slog.Logger
+	// TLS, if both fields are set, terminates HTTPS directly.
+	TLSCertFile string
+	TLSKeyFile  string
+	Logger      *slog.Logger
 }
 
 // RunHTTP serves s over Streamable HTTP at /mcp until ctx is cancelled,
 // enforcing the hardening design.md §4.1 requires: loopback-only unless
-// AllowRemote, a bearer token whenever AllowRemote is set, and origin
-// validation. It never starts a server that violates these — validation
-// happens before ListenAndServe, not as a runtime check that could be
-// bypassed by a race.
+// AllowRemote, an auth mechanism (bearer token or OAuth) whenever
+// AllowRemote is set, and origin validation. It never starts a server that
+// violates these — validation happens before ListenAndServe, not as a
+// runtime check that could be bypassed by a race.
 func RunHTTP(ctx context.Context, s *gosdk.Server, opts HTTPOptions) error {
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
+	}
+
+	if opts.BearerToken != "" && opts.OAuth != nil {
+		return fmt.Errorf("http: bearer_token_env and oauth are mutually exclusive — configure at most one")
 	}
 
 	host, _, err := net.SplitHostPort(opts.Bind)
@@ -54,8 +65,8 @@ func RunHTTP(ctx context.Context, s *gosdk.Server, opts HTTPOptions) error {
 	}
 	if opts.AllowRemote {
 		logger.Warn("HTTP transport is remote-reachable — this widens network exposure beyond this host", "bind", opts.Bind)
-		if opts.BearerToken == "" {
-			return fmt.Errorf("http: --allow-remote requires a bearer token (server.http.bearer_token_env in config); there is no unauthenticated remote mode")
+		if opts.BearerToken == "" && opts.OAuth == nil {
+			return fmt.Errorf("http: --allow-remote requires an auth mechanism (bearer_token_env or oauth in config); there is no unauthenticated remote mode")
 		}
 	}
 
@@ -64,10 +75,28 @@ func RunHTTP(ctx context.Context, s *gosdk.Server, opts HTTPOptions) error {
 		&gosdk.StreamableHTTPOptions{Logger: logger},
 	)
 
+	mux := http.NewServeMux()
+
 	var h http.Handler = handler
-	if opts.BearerToken != "" {
+	switch {
+	case opts.OAuth != nil:
+		verifier, err := newOIDCVerifier(ctx, *opts.OAuth)
+		if err != nil {
+			return err
+		}
+		metadataURL := opts.OAuth.ResourceURL // same host; discovery lives beside /mcp
+		if metadataURL != "" {
+			mux.Handle("/.well-known/oauth-protected-resource", protectedResourceMetadataHandler(*opts.OAuth))
+		}
+		h = sdkauth.RequireBearerToken(verifier, &sdkauth.RequireBearerTokenOptions{
+			Scopes:              opts.OAuth.RequiredScopes,
+			ResourceMetadataURL: metadataURL,
+		})(h)
+		logger.Info("HTTP transport requires OAuth bearer tokens", "issuer", opts.OAuth.IssuerURL, "audience", opts.OAuth.Audience)
+	case opts.BearerToken != "":
 		h = requireBearerToken(opts.BearerToken, h)
 	}
+
 	if len(opts.AllowedOrigins) > 0 {
 		cop := http.NewCrossOriginProtection()
 		for _, o := range opts.AllowedOrigins {
@@ -78,13 +107,23 @@ func RunHTTP(ctx context.Context, s *gosdk.Server, opts HTTPOptions) error {
 		h = cop.Handler(h)
 	}
 
-	mux := http.NewServeMux()
 	mux.Handle("/mcp", h)
 
 	srv := &http.Server{Addr: opts.Bind, Handler: mux}
 
+	useTLS := opts.TLSCertFile != "" && opts.TLSKeyFile != ""
+	if opts.AllowRemote && !useTLS {
+		logger.Warn("HTTP transport is remote-reachable without TLS configured — bearer tokens and OAuth access tokens will travel in the clear over the network; set server.http.tls in config")
+	}
+
 	errCh := make(chan error, 1)
-	go func() { errCh <- srv.ListenAndServe() }()
+	go func() {
+		if useTLS {
+			errCh <- srv.ListenAndServeTLS(opts.TLSCertFile, opts.TLSKeyFile)
+		} else {
+			errCh <- srv.ListenAndServe()
+		}
+	}()
 
 	select {
 	case err := <-errCh:

@@ -64,17 +64,36 @@ func runServe(ctx context.Context, configPath string, allowRemote bool) error {
 	s := fieldlinkmcp.New(eng, cfg)
 
 	if cfg.Server.Transport == "http" {
+		httpCfg := cfg.Server.HTTP
 		var token string
-		if cfg.Server.HTTP.BearerTokenEnv != "" {
-			token = os.Getenv(cfg.Server.HTTP.BearerTokenEnv)
+		if httpCfg.BearerTokenEnv != "" {
+			token = os.Getenv(httpCfg.BearerTokenEnv)
 		}
-		return fieldlinkmcp.RunHTTP(ctx, s, fieldlinkmcp.HTTPOptions{
-			Bind:           cfg.Server.HTTP.Bind,
+
+		opts := fieldlinkmcp.HTTPOptions{
+			Bind:           httpCfg.Bind,
 			AllowRemote:    allowRemote,
 			BearerToken:    token,
-			AllowedOrigins: cfg.Server.HTTP.AllowedOrigins,
+			AllowedOrigins: httpCfg.AllowedOrigins,
 			Logger:         logger,
-		})
+		}
+		if httpCfg.TLS != nil {
+			opts.TLSCertFile = httpCfg.TLS.CertFile
+			opts.TLSKeyFile = httpCfg.TLS.KeyFile
+		}
+		if httpCfg.OAuth != nil {
+			scheme := "http"
+			if httpCfg.TLS != nil {
+				scheme = "https"
+			}
+			opts.OAuth = &fieldlinkmcp.OAuthOptions{
+				IssuerURL:      httpCfg.OAuth.IssuerURL,
+				Audience:       httpCfg.OAuth.Audience,
+				RequiredScopes: httpCfg.OAuth.RequiredScopes,
+				ResourceURL:    scheme + "://" + httpCfg.Bind + "/mcp",
+			}
+		}
+		return fieldlinkmcp.RunHTTP(ctx, s, opts)
 	}
 
 	return fieldlinkmcp.RunStdio(ctx, s)

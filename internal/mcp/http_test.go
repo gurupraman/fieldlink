@@ -2,8 +2,17 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -164,4 +173,82 @@ func TestRunHTTP_AllowsLoopbackWithoutFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected a clean shutdown, got: %v", err)
 	}
+}
+
+// TestRunHTTP_TLS drives RunHTTP with a real, freshly generated self-signed
+// certificate and connects with a real HTTPS client that trusts it —
+// proving ListenAndServeTLS is actually wired up, not just that the flag
+// exists.
+func TestRunHTTP_TLS(t *testing.T) {
+	certPEM, keyPEM, certDER := generateSelfSignedCert(t)
+	certFile := writeTempFile(t, "cert.pem", certPEM)
+	keyFile := writeTempFile(t, "key.pem", keyPEM)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bind := "127.0.0.1:18768"
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- RunHTTP(ctx, New(policy.NewAllowAll(nil), nil), HTTPOptions{
+			Bind:        bind,
+			TLSCertFile: certFile,
+			TLSKeyFile:  keyFile,
+		})
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	pool := x509.NewCertPool()
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.AddCert(cert)
+	client := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{RootCAs: pool},
+	}}
+
+	resp, err := client.Get("https://" + bind + "/mcp")
+	if err != nil {
+		t.Fatalf("HTTPS GET failed — TLS is not actually serving: %v", err)
+	}
+	resp.Body.Close()
+
+	cancel()
+	if err := <-errCh; err != nil {
+		t.Fatalf("RunHTTP: %v", err)
+	}
+}
+
+func generateSelfSignedCert(t *testing.T) (certPEM, keyPEM []byte, certDER []byte) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "127.0.0.1"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	return certPEM, keyPEM, der
+}
+
+func writeTempFile(t *testing.T, name string, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

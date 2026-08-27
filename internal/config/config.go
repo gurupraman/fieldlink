@@ -131,11 +131,48 @@ type HTTPConfig struct {
 	// wildcard design.md's own example config shows. List every port you
 	// actually use.
 	AllowedOrigins []string `yaml:"allowed_origins"`
-	// BearerTokenEnv names an environment variable holding the bearer
+	// BearerTokenEnv names an environment variable holding a static bearer
 	// token required on every request once --allow-remote is set
 	// (design.md §4.1: "no unauthenticated remote mode"). Never set the
-	// token inline in config, same discipline as datasource DSNs.
+	// token inline in config, same discipline as datasource DSNs. Mutually
+	// exclusive with OAuth — set at most one.
 	BearerTokenEnv string `yaml:"bearer_token_env"`
+	// TLS terminates HTTPS directly when set. Required in any deployment
+	// where requests leave the host unencrypted otherwise — a bearer
+	// token or OAuth access token sent over plain HTTP is sent in the
+	// clear to anyone on the network path.
+	TLS *TLSConfig `yaml:"tls"`
+	// OAuth, when set, validates bearer tokens against an external OIDC
+	// identity provider instead of a static shared token — FieldLink acts
+	// as an OAuth resource server, never an authorization server; it
+	// verifies tokens someone else's IdP issued; it doesn't issue them.
+	// Mutually exclusive with BearerTokenEnv.
+	OAuth *OAuthConfig `yaml:"oauth"`
+}
+
+type TLSConfig struct {
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+}
+
+// OAuthConfig points at an external identity provider (Okta, Azure AD,
+// Auth0, Keycloak, or anything else speaking standard OIDC discovery).
+// FieldLink validates the access tokens that provider issues; it does not
+// run its own authorization server or issue tokens itself.
+type OAuthConfig struct {
+	// IssuerURL is the OIDC issuer — FieldLink fetches
+	// <issuer>/.well-known/openid-configuration to discover the JWKS
+	// endpoint used to verify token signatures.
+	IssuerURL string `yaml:"issuer_url"`
+	// Audience is the expected "aud" claim — the resource identifier
+	// tokens must have been issued for. Required; there is no
+	// skip-audience-check mode, since accepting a token issued for some
+	// other resource is exactly the kind of token-confusion bug OAuth
+	// audience restriction exists to prevent.
+	Audience string `yaml:"audience"`
+	// RequiredScopes, if set, must all be present in a token's scope
+	// claim.
+	RequiredScopes []string `yaml:"required_scopes"`
 }
 
 type GrantConfig struct {

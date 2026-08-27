@@ -92,68 +92,103 @@ running on a gateway PC on the plant network (Windows or Linux) while the
 MCP client is an engineer's laptop, or a cloud-hosted agent, somewhere else
 entirely. stdio can't reach across that gap. HTTP can.
 
-### 1. Configure the binary for HTTP
+### 1. Pick an auth mode
+
+Two options, both enforced the same way: `--allow-remote` refuses to start
+unless one of them is configured — there is no unauthenticated remote mode.
+
+**OAuth (recommended for anything beyond a quick test).** FieldLink acts as
+an OAuth 2.1 *resource server* — it validates access tokens your existing
+identity provider (Okta, Azure AD, Auth0, Keycloak, anything with standard
+OIDC discovery) already issues. It does not run its own auth server or
+issue tokens itself.
 
 ```yaml
-# config.yaml, on the machine running fieldlink
-agent_id: fieldlink-plant2-gw01
-
 server:
   transport: http
   http:
-    bind: 127.0.0.1:8765          # loopback only, unless you pass --allow-remote
-    allowed_origins: []            # exact origins only — see below
-    bearer_token_env: FIELDLINK_BEARER_TOKEN
-
-grant:
-  path: /etc/fieldlink/grant.yaml
-  trusted_key: /etc/fieldlink/trusted.pub
+    bind: 0.0.0.0:8765
+    tls:
+      cert_file: /etc/fieldlink/tls/server.crt
+      key_file: /etc/fieldlink/tls/server.key
+    oauth:
+      issuer_url: "https://your-tenant.okta.com"   # or Azure AD / Auth0 / Keycloak
+      audience: "fieldlink-plant2-gw01"
+      required_scopes: ["fieldlink:read"]
 ```
+
+Compliant clients discover how to authenticate automatically via
+`GET /.well-known/oauth-protected-resource` (RFC 9728) — no manually
+copy-pasted header on the client side.
+
+**Static bearer token** — simpler, no IdP required, less individually
+revocable (one shared secret for every client):
+
+```yaml
+server:
+  transport: http
+  http:
+    bind: 0.0.0.0:8765
+    tls:
+      cert_file: /etc/fieldlink/tls/server.crt
+      key_file: /etc/fieldlink/tls/server.key
+    bearer_token_env: FIELDLINK_BEARER_TOKEN
+```
+
+`oauth` and `bearer_token_env` are mutually exclusive — `fieldlink` refuses
+to start if both are set.
+
+**TLS is not optional once you leave loopback.** Without it, the bearer
+token or OAuth access token travels in cleartext over the network — anyone
+on the path can read it. `fieldlink` logs a loud warning at startup if
+you're remote-reachable without `tls` configured, but it doesn't stop you;
+that check does.
 
 ### 2. Start it
 
 **Same machine as the client**, or reachable only via an SSH tunnel /
-existing VPN (recommended — nothing extra to expose):
+existing VPN (recommended even with OAuth or TLS configured — one less
+thing exposed to the whole network):
 
 ```bash
 fieldlink serve --config config.yaml
 ```
 
-Binds `127.0.0.1:8765` by default. No `--allow-remote`, no bearer token
-needed — nothing outside this host can reach it at all.
+If `bind` is left at the default `127.0.0.1:8765`, no `--allow-remote`, no
+auth config, and no TLS are needed — nothing outside this host can reach it.
 
-**Actually reachable from another machine** — a real gateway deployment:
+**Actually reachable from another machine:**
 
 ```bash
-export FIELDLINK_BEARER_TOKEN="$(openssl rand -hex 32)"
+export FIELDLINK_BEARER_TOKEN="$(openssl rand -hex 32)"   # static-token mode only
 fieldlink serve --config config.yaml --allow-remote
 ```
 
 `--allow-remote` is required the moment `bind` isn't a loopback address —
-`fieldlink` refuses to start otherwise, and this can't be worked around
-from config alone (it's a CLI flag, so a leaked config file can't silently
-turn into a network-exposed server). Once remote, a bearer token is
-mandatory too — there is no unauthenticated remote mode. Put a real
-secret in `FIELDLINK_BEARER_TOKEN`, not the placeholder above.
-
+this can't be worked around from config alone (it's a CLI flag, so a
+leaked config file can't silently turn into a network-exposed server).
 This widens exposure beyond the host, so it logs a loud warning on every
 startup as a standing reminder.
 
 ### 3. Point the client at it
 
+With OAuth, a spec-compliant client completes the auth flow itself once
+pointed at the URL — check your client's docs for exact config shape. With
+a static token:
+
 ```json
 {
   "mcpServers": {
     "fieldlink": {
-      "url": "http://gateway-host:8765/mcp",
+      "url": "https://gateway-host:8765/mcp",
       "headers": { "Authorization": "Bearer <the same token>" }
     }
   }
 }
 ```
 
-(Exact config key names for a URL-based MCP server vary by client — check
-your client's docs. The endpoint is always `/mcp`.)
+(Exact config key names for a URL-based MCP server vary by client. The
+endpoint is always `/mcp`.)
 
 ### On Origin validation
 
