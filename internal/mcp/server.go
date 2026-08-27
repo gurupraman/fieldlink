@@ -11,8 +11,10 @@ import (
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/gurupraman/fieldlink/internal/config"
+	dbexec "github.com/gurupraman/fieldlink/internal/exec/db"
 	modbusexec "github.com/gurupraman/fieldlink/internal/exec/device/modbus"
 	fsexec "github.com/gurupraman/fieldlink/internal/exec/fs"
+	httpexec "github.com/gurupraman/fieldlink/internal/exec/httpx"
 	"github.com/gurupraman/fieldlink/internal/policy"
 )
 
@@ -30,12 +32,15 @@ const (
 		"it failed. Treat a denied call as final rather than retrying."
 )
 
-// New builds the FieldLink MCP server and registers every tool this build
-// implements. eng is consulted by each tool on every call — see
+// New builds the FieldLink MCP server and registers every tool and
+// resource this build implements. eng is consulted on every call — see
 // internal/policy for why it is passed in rather than constructed here.
-// devices is the config.yaml devices: section, needed by read_modbus to
-// resolve a device name to a connection and register map.
-func New(eng policy.Engine, devices map[string]config.Device) *gosdk.Server {
+// cfg may be nil in tests that only exercise fs.read/fs.list.
+func New(eng policy.Engine, cfg *config.Config) *gosdk.Server {
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+
 	s := gosdk.NewServer(&gosdk.Implementation{
 		Name:    name,
 		Version: version,
@@ -44,10 +49,13 @@ func New(eng policy.Engine, devices map[string]config.Device) *gosdk.Server {
 	})
 
 	fsExec := &fsexec.Executor{Policy: eng}
+	modbusExec := modbusexec.NewExecutor(eng, cfg.Devices)
+	httpExec := &httpexec.Executor{Policy: eng}
+	dbExec := dbexec.NewExecutor(eng, cfg.Datasources)
 
 	// A capability absent from the grant must never appear in tools/list
 	// (design.md §4.3) — Granted() is checked once here at startup. This
-	// does not weaken per-call enforcement: fsExec still calls
+	// does not weaken per-call enforcement: every executor still calls
 	// eng.Authorize on every invocation of a tool that *is* registered.
 	//
 	// TODO(later): design.md §6.4 describes live mid-session expiry —
@@ -87,7 +95,6 @@ func New(eng policy.Engine, devices map[string]config.Device) *gosdk.Server {
 	}
 
 	if eng.Granted("device.modbus.read") {
-		modbusExec := modbusexec.NewExecutor(eng, devices)
 		gosdk.AddTool(s, &gosdk.Tool{
 			Name:  "read_modbus",
 			Title: "Read Modbus register",
@@ -103,6 +110,41 @@ func New(eng policy.Engine, devices map[string]config.Device) *gosdk.Server {
 			},
 		}, modbusExec.ReadModbus)
 	}
+
+	if eng.Granted("http.request") {
+		gosdk.AddTool(s, &gosdk.Tool{
+			Name:  "call_internal_http",
+			Title: "Call internal HTTP service",
+			Description: "GET or HEAD an internal HTTP URL. Redirects are not " +
+				"followed automatically. Read-only: no other methods are supported.",
+			Annotations: &gosdk.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: boolPtr(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   boolPtr(true),
+			},
+		}, httpExec.CallInternalHTTP)
+	}
+
+	if eng.Granted("db.query") {
+		gosdk.AddTool(s, &gosdk.Tool{
+			Name:  "query_database",
+			Title: "Query database",
+			Description: "Run a single read-only SELECT or WITH query against a " +
+				"named datasource, with bound parameters. Read-only: statements " +
+				"other than SELECT/WITH are rejected, and the database account " +
+				"FieldLink connects with should itself be read-only.",
+			Annotations: &gosdk.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: boolPtr(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   boolPtr(false),
+			},
+		}, dbExec.QueryDatabase)
+	}
+
+	registerResources(s, eng, cfg, dbExec)
+	registerPrompts(s)
 
 	return s
 }

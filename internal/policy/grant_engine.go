@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"log/slog"
+	"net"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 
+	"github.com/gurupraman/fieldlink/internal/audit"
 	"github.com/gurupraman/fieldlink/internal/grant"
 )
 
@@ -22,6 +24,11 @@ type GrantEngine struct {
 	grantPath  string
 	trustedKey string
 	logger     *slog.Logger
+
+	// Audit, if set, receives one record per Authorize call — every
+	// decision, allow and deny (design.md §8). Left nil in tests that
+	// don't care about the audit trail.
+	Audit *audit.Chain
 
 	mu              sync.Mutex
 	lastFingerprint string
@@ -113,29 +120,70 @@ func (e *GrantEngine) Granted(capability string) bool {
 	return ok
 }
 
+func (e *GrantEngine) GrantedValues(capability, key string) []string {
+	v, err := e.load(context.Background())
+	if err != nil {
+		return []string{} // fail closed: an unverifiable grant restricts to nothing
+	}
+	constraints, ok := v.g.Find(capability)
+	if !ok {
+		return []string{}
+	}
+	list, ok := constraints[key].([]any)
+	if !ok {
+		return []string{}
+	}
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func (e *GrantEngine) Authorize(ctx context.Context, capability string, params map[string]any) Decision {
+	grantID, decision := e.authorizeInner(ctx, capability, params)
+	if e.Audit != nil {
+		status := "deny"
+		if decision.Allowed {
+			status = "allow"
+		}
+		digest := audit.ParamsDigest(params)
+		if err := e.Audit.Append(grantID, capability, status, decision.Reason, digest); err != nil {
+			e.logger.Error("audit: failed to append record", "err", err)
+		}
+	}
+	return decision
+}
+
+func (e *GrantEngine) authorizeInner(ctx context.Context, capability string, params map[string]any) (grantID string, decision Decision) {
 	v, err := e.load(ctx)
 	if err != nil {
-		return Decision{Allowed: false, Reason: err.Error()}
+		return "", Decision{Allowed: false, Reason: err.Error()}
 	}
 
 	constraints, ok := v.g.Find(capability)
 	if !ok {
-		return Decision{Allowed: false, Reason: "capability is not permitted"}
+		return v.g.GrantID, Decision{Allowed: false, Reason: "capability is not permitted"}
 	}
 
 	switch capability {
 	case "fs.read":
-		return authorizeFSRead(constraints, params)
+		return v.g.GrantID, authorizeFSRead(constraints, params)
 	case "fs.list":
-		return authorizeFSList(constraints, params)
+		return v.g.GrantID, authorizeFSList(constraints, params)
 	case "device.modbus.read":
-		return authorizeModbusRead(constraints, params)
+		return v.g.GrantID, authorizeModbusRead(constraints, params)
+	case "http.request":
+		return v.g.GrantID, authorizeHTTPRequest(constraints, params)
+	case "db.query":
+		return v.g.GrantID, authorizeDBQuery(constraints, params)
 	default:
 		// The capability is present in the grant but this build has no
 		// constraint logic for it yet — fail closed rather than allow
 		// unconditionally.
-		return Decision{Allowed: false, Reason: "capability is not permitted"}
+		return v.g.GrantID, Decision{Allowed: false, Reason: "capability is not permitted"}
 	}
 }
 
@@ -173,6 +221,52 @@ func authorizeModbusRead(constraints map[string]any, params map[string]any) Deci
 	}
 	if !stringInList(constraints["registers"], register) {
 		return Decision{Allowed: false, Reason: "register is not permitted"}
+	}
+	return Decision{Allowed: true}
+}
+
+func authorizeHTTPRequest(constraints map[string]any, params map[string]any) Decision {
+	ipStr, _ := params["resolved_ip"].(string)
+	method, _ := params["method"].(string)
+	ip := net.ParseIP(ipStr)
+	if ip == nil || !ipMatchesAnyCIDR(constraints["cidrs"], ip) {
+		return Decision{Allowed: false, Reason: "this address is not permitted"}
+	}
+	if !stringInList(constraints["methods"], method) {
+		return Decision{Allowed: false, Reason: "method is not permitted"}
+	}
+	return Decision{Allowed: true}
+}
+
+// ipMatchesAnyCIDR reports whether ip falls within any CIDR in cidrs (a
+// []any of strings, as decoded from grant YAML). A missing or empty list
+// matches nothing.
+func ipMatchesAnyCIDR(cidrs any, ip net.IP) bool {
+	list, ok := cidrs.([]any)
+	if !ok {
+		return false
+	}
+	for _, c := range list {
+		cidr, ok := c.(string)
+		if !ok {
+			continue
+		}
+		if _, n, err := net.ParseCIDR(cidr); err == nil && n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func authorizeDBQuery(constraints map[string]any, params map[string]any) Decision {
+	datasource, _ := params["datasource"].(string)
+	if !stringInList(constraints["datasources"], datasource) {
+		return Decision{Allowed: false, Reason: "datasource is not permitted"}
+	}
+	if ceiling, ok := toInt64(constraints["max_rows"]); ok {
+		if requested, ok := toInt64(params["max_rows"]); ok && requested > ceiling {
+			return Decision{Allowed: false, Reason: "max_rows exceeds what is permitted"}
+		}
 	}
 	return Decision{Allowed: true}
 }

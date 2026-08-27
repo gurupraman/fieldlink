@@ -34,6 +34,17 @@ type Engine interface {
 	// tools/list and resources/list at all. A capability absent from the
 	// grant must never appear there (design.md §4.3).
 	Granted(capability string) bool
+
+	// GrantedValues returns the constraint values under key (e.g.
+	// "devices", "registers", "datasources") for capability, as currently
+	// granted. It exists solely so MCP resource handlers can filter their
+	// *content* to match what tools/list already reflects (design.md §4.4:
+	// "a device absent from the grant is absent from fieldlink://devices").
+	// It is informational, not an enforcement point — Authorize remains
+	// the sole authority for whether a call is permitted. nil means
+	// unrestricted (show everything); a non-nil, possibly empty, slice is
+	// an allow-list.
+	GrantedValues(capability, key string) []string
 }
 
 // AllowAll is a policy engine that authorises every call unconditionally.
@@ -64,4 +75,8 @@ func (a *AllowAll) Authorize(_ context.Context, capability string, _ map[string]
 
 func (a *AllowAll) Granted(string) bool {
 	return true
+}
+
+func (a *AllowAll) GrantedValues(string, string) []string {
+	return nil // unrestricted
 }

@@ -6,17 +6,35 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	AgentID string            `yaml:"agent_id"`
-	Server  ServerConfig      `yaml:"server"`
-	Grant   GrantConfig       `yaml:"grant"`
-	Audit   AuditConfig       `yaml:"audit"`
-	Devices map[string]Device `yaml:"devices"`
+	AgentID     string                `yaml:"agent_id"`
+	Server      ServerConfig          `yaml:"server"`
+	Grant       GrantConfig           `yaml:"grant"`
+	Audit       AuditConfig           `yaml:"audit"`
+	Devices     map[string]Device     `yaml:"devices"`
+	Datasources map[string]Datasource `yaml:"datasources"`
+
+	// ConfigDir is the directory config.yaml was loaded from, not a YAML
+	// field. It's how relative paths like a register's Lookup filename
+	// are resolved (design.md §9's example writes just "faults.yaml").
+	ConfigDir string `yaml:"-"`
+}
+
+// Datasource is one entry under datasources: in config.yaml (design.md
+// §9). The connection string is never inline in config — only an
+// environment variable name, so config.yaml stays safe to put under
+// version control and review.
+type Datasource struct {
+	// Driver selects the database: "postgres", "mssql", or "oracle".
+	Driver       string `yaml:"driver"`
+	DSNEnv       string `yaml:"dsn_env"`
+	MaxOpenConns int    `yaml:"max_open_conns"`
 }
 
 // Duration parses YAML values like "2s" into a time.Duration.
@@ -61,8 +79,9 @@ type Register struct {
 	Scale     float64   `yaml:"scale"`      // 0 is treated as 1 (unset)
 	Unit      string    `yaml:"unit"`
 	Range     []float64 `yaml:"range"` // optional [min, max] sanity bounds
-	// Lookup names a fault-code table file. Not consumed until the
-	// fieldlink://devices/{id}/faults resource lands (design.md §4.4).
+	// Lookup names a fault-code table file (int code -> description),
+	// resolved relative to ConfigDir, surfaced via the
+	// fieldlink://devices/{id}/faults resource (design.md §4.4).
 	Lookup string `yaml:"lookup"`
 }
 
@@ -106,6 +125,34 @@ func Load(path string) (*Config, error) {
 	if cfg.Server.Transport == "" {
 		cfg.Server.Transport = "stdio"
 	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("config %s: %w", path, err)
+	}
+	cfg.ConfigDir = filepath.Dir(abs)
 
 	return &cfg, nil
+}
+
+// LoadFaultTable reads a fault-code lookup file named by a Register's
+// Lookup field, resolved relative to ConfigDir. It's lenient: a missing or
+// empty Lookup returns an empty table rather than an error, since not
+// every device has fault codes.
+func (c *Config) LoadFaultTable(lookup string) (map[int]string, error) {
+	if lookup == "" {
+		return map[int]string{}, nil
+	}
+	path := lookup
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(c.ConfigDir, lookup)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return map[int]string{}, nil
+	}
+	var table map[int]string
+	if err := yaml.Unmarshal(data, &table); err != nil {
+		return nil, fmt.Errorf("parse fault table %s: %w", path, err)
+	}
+	return table, nil
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/gurupraman/fieldlink/internal/audit"
 	"github.com/gurupraman/fieldlink/internal/config"
 	fieldlinkmcp "github.com/gurupraman/fieldlink/internal/mcp"
 	"github.com/gurupraman/fieldlink/internal/policy"
@@ -46,7 +47,18 @@ func runServe(ctx context.Context, configPath string) error {
 
 	eng := policy.NewGrantEngine(cfg.AgentID, cfg.Grant.Path, cfg.Grant.TrustedKey, logger)
 
-	s := fieldlinkmcp.New(eng, cfg.Devices)
+	if cfg.Audit.Path != "" {
+		chain, err := audit.Open(cfg.Audit.Path, cfg.AgentID)
+		if err != nil {
+			return fmt.Errorf("serve: %w", err)
+		}
+		defer chain.Close()
+		eng.Audit = chain
+	} else {
+		logger.Warn("no audit.path configured — calls will not be recorded")
+	}
+
+	s := fieldlinkmcp.New(eng, cfg)
 
 	return fieldlinkmcp.RunStdio(ctx, s)
 }

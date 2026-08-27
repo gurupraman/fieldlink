@@ -15,6 +15,7 @@ func main() {
 	root.AddCommand(newServeCmd())
 	root.AddCommand(newGrantCmd())
 	root.AddCommand(newDemoCmd())
+	root.AddCommand(newAuditCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
