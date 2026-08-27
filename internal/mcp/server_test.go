@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/getsetai/fieldlink/internal/policy"
+	"github.com/gurupraman/fieldlink/internal/grant"
+	"github.com/gurupraman/fieldlink/internal/policy"
 )
 
 // TestServeReadFileAndListDirectory exercises the server the way a real MCP
@@ -110,4 +112,124 @@ func TestServeReadFileAndListDirectory(t *testing.T) {
 	if !deniedResult.IsError {
 		t.Fatalf("expected isError:true for a missing file, got %+v", deniedResult)
 	}
+}
+
+// TestMissingGrantYieldsZeroTools is the Week 2 done-bar from CLAUDE.md's
+// build order: "An unsigned grant yields zero advertised tools."
+func TestMissingGrantYieldsZeroTools(t *testing.T) {
+	dir := t.TempDir()
+	// No grant.yaml, no grant.yaml.sig, no trusted.pub were ever written.
+	eng := policy.NewGrantEngine("fieldlink-test",
+		filepath.Join(dir, "grant.yaml"), filepath.Join(dir, "trusted.pub"), nil)
+
+	ctx := context.Background()
+	s := New(eng)
+
+	serverTransport, clientTransport := gosdk.NewInMemoryTransports()
+	serverSession, err := s.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	defer serverSession.Close()
+
+	client := gosdk.NewClient(&gosdk.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer clientSession.Close()
+
+	tools, err := clientSession.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("tools/list: %v", err)
+	}
+	if len(tools.Tools) != 0 {
+		t.Fatalf("expected zero tools with no grant present, got %v", toolNames(tools.Tools))
+	}
+}
+
+// TestGrantFiltersToolsByCapability proves tools/list reflects exactly the
+// grant's capability set, not "everything this build implements" — a grant
+// covering only fs.read must not advertise list_directory.
+func TestGrantFiltersToolsByCapability(t *testing.T) {
+	dir := t.TempDir()
+	eng := signedGrantEngine(t, dir, `
+version: 1
+grant_id: 01J9Z8Q7K3M4N5P6R7S8T9V0W1
+agent_id: fieldlink-test
+issued_at: `+time.Now().Add(-1*time.Hour).UTC().Format(time.RFC3339)+`
+expires_at: `+time.Now().Add(24*time.Hour).UTC().Format(time.RFC3339)+`
+issuer: security@example.com
+capabilities:
+  - capability: fs.read
+    constraints:
+      paths: ["`+filepath.ToSlash(dir)+`/**"]
+`)
+
+	ctx := context.Background()
+	s := New(eng)
+
+	serverTransport, clientTransport := gosdk.NewInMemoryTransports()
+	serverSession, err := s.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	defer serverSession.Close()
+
+	client := gosdk.NewClient(&gosdk.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer clientSession.Close()
+
+	tools, err := clientSession.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("tools/list: %v", err)
+	}
+	names := toolNames(tools.Tools)
+	if len(names) != 1 || !names["read_file"] {
+		t.Fatalf("expected only read_file, got %v", names)
+	}
+}
+
+func toolNames(tools []*gosdk.Tool) map[string]bool {
+	names := map[string]bool{}
+	for _, tool := range tools {
+		names[tool.Name] = true
+	}
+	return names
+}
+
+// signedGrantEngine signs grantYAML with a fresh throwaway keypair and
+// writes grant.yaml, grant.yaml.sig, and trusted.pub into dir, returning a
+// ready-to-use policy.GrantEngine.
+func signedGrantEngine(t *testing.T, dir, grantYAML string) *policy.GrantEngine {
+	t.Helper()
+	pub, priv, err := grant.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	g, canonical, err := grant.ParseYAML([]byte(grantYAML))
+	if err != nil {
+		t.Fatalf("ParseYAML: %v", err)
+	}
+	if err := g.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	sig := grant.Sign(priv, canonical)
+
+	grantPath := filepath.Join(dir, "grant.yaml")
+	if err := os.WriteFile(grantPath, []byte(grantYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := grant.WriteSignatureFile(grantPath+".sig", sig); err != nil {
+		t.Fatal(err)
+	}
+	pubPath := filepath.Join(dir, "trusted.pub")
+	if err := grant.WritePublicKeyFile(pubPath, pub); err != nil {
+		t.Fatal(err)
+	}
+
+	return policy.NewGrantEngine("fieldlink-test", grantPath, pubPath, nil)
 }

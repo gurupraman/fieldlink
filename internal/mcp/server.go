@@ -10,8 +10,8 @@ import (
 
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	fsexec "github.com/getsetai/fieldlink/internal/exec/fs"
-	"github.com/getsetai/fieldlink/internal/policy"
+	fsexec "github.com/gurupraman/fieldlink/internal/exec/fs"
+	"github.com/gurupraman/fieldlink/internal/policy"
 )
 
 const (
@@ -41,32 +41,46 @@ func New(eng policy.Engine) *gosdk.Server {
 
 	fsExec := &fsexec.Executor{Policy: eng}
 
-	gosdk.AddTool(s, &gosdk.Tool{
-		Name:  "read_file",
-		Title: "Read file",
-		Description: "Read a file's contents. Read-only: this tool cannot write, " +
-			"create, or delete. Files larger than max_bytes return a SHA-256 " +
-			"digest instead of content.",
-		Annotations: &gosdk.ToolAnnotations{
-			ReadOnlyHint:    true,
-			DestructiveHint: boolPtr(false),
-			IdempotentHint:  true,
-			OpenWorldHint:   boolPtr(false),
-		},
-	}, fsExec.ReadFile)
+	// A capability absent from the grant must never appear in tools/list
+	// (design.md §4.3) — Granted() is checked once here at startup. This
+	// does not weaken per-call enforcement: fsExec still calls
+	// eng.Authorize on every invocation of a tool that *is* registered.
+	//
+	// TODO(later): design.md §6.4 describes live mid-session expiry —
+	// emitting notifications/tools/list_changed and serving an empty list
+	// when a grant expires without a restart. Not implemented yet; today
+	// the advertised list reflects the grant's state at startup, while
+	// Authorize always re-verifies fresh and fails closed regardless.
+	if eng.Granted("fs.read") {
+		gosdk.AddTool(s, &gosdk.Tool{
+			Name:  "read_file",
+			Title: "Read file",
+			Description: "Read a file's contents. Read-only: this tool cannot write, " +
+				"create, or delete. Files larger than max_bytes return a SHA-256 " +
+				"digest instead of content.",
+			Annotations: &gosdk.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: boolPtr(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   boolPtr(false),
+			},
+		}, fsExec.ReadFile)
+	}
 
-	gosdk.AddTool(s, &gosdk.Tool{
-		Name:  "list_directory",
-		Title: "List directory",
-		Description: "List entries in a directory, optionally filtered by glob " +
-			"and recursed. Read-only.",
-		Annotations: &gosdk.ToolAnnotations{
-			ReadOnlyHint:    true,
-			DestructiveHint: boolPtr(false),
-			IdempotentHint:  true,
-			OpenWorldHint:   boolPtr(false),
-		},
-	}, fsExec.ListDirectory)
+	if eng.Granted("fs.list") {
+		gosdk.AddTool(s, &gosdk.Tool{
+			Name:  "list_directory",
+			Title: "List directory",
+			Description: "List entries in a directory, optionally filtered by glob " +
+				"and recursed. Read-only.",
+			Annotations: &gosdk.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: boolPtr(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   boolPtr(false),
+			},
+		}, fsExec.ListDirectory)
+	}
 
 	return s
 }

@@ -1,15 +1,14 @@
-# Local development config — stdio transport, no grant enforcement yet
-# (internal/policy.AllowAll). Do not point this at anything you would mind
-# an unauthenticated caller reading; Week 2 replaces the stub with a real
-# grant-verifying policy engine.
+# Local development config — stdio transport, enforced by the example
+# signed grant in examples/grants/dev/ (fs.read + fs.list, scoped to /tmp).
+# See examples/grants/dev/grant.yaml for how to sign your own.
 agent_id: fieldlink-dev
 
 server:
   transport: stdio
 
 grant:
-  path: /etc/fieldlink/grant.yaml
-  trusted_key: /etc/fieldlink/trusted.pub
+  path: examples/grants/dev/grant.yaml
+  trusted_key: examples/grants/dev/trusted.pub
 
 audit:
   path: /tmp/fieldlink-dev-audit.jsonl

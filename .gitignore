@@ -3,13 +3,20 @@
 /fieldlink
 *.exe
 
-# Local dev artifacts — never commit secrets, grants, or audit logs
+# Local dev artifacts — never commit secrets, grants, or audit logs. These
+# match at any depth so a `fieldlink grant keygen`/`sign` run anywhere in a
+# working copy doesn't get committed by accident. Real, intentional example
+# material lives under examples/ and is force-included below.
 *.log
 audit.jsonl
+*.key
 grant.yaml
 grant.yaml.sig
 trusted.pub
-trusted.key
 .env
+
+!examples/**/grant.yaml
+!examples/**/grant.yaml.sig
+!examples/**/trusted.pub
 
 .DS_Store

@@ -11,7 +11,7 @@
 git init -b main
 git add .
 git commit -m "Initial commit: design, README, security policy"
-git remote add origin git@github.com:<you>/fieldlink.git
+git remote add origin git@github.com:gurupraman/fieldlink.git
 git push -u origin main
 ```
 

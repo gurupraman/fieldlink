@@ -65,7 +65,7 @@ curl -sSL https://get.fieldlink.dev/fieldlink.deb -o fieldlink.deb && sudo dpkg 
 
 # Raspberry Pi / ARM64 / ARMv7 — grab the matching binary from Releases
 # Go
-go install github.com/<you>/fieldlink/cmd/fieldlink@latest
+go install github.com/gurupraman/fieldlink/cmd/fieldlink@latest
 ```
 
 Every release ships checksums, an SBOM, and a cosign signature.

@@ -16,7 +16,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/getsetai/fieldlink/internal/policy"
+	"github.com/gurupraman/fieldlink/internal/policy"
 )
 
 const defaultMaxBytes int64 = 1 << 20 // 1 MiB

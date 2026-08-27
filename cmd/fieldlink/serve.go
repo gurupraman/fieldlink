@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/getsetai/fieldlink/internal/config"
-	fieldlinkmcp "github.com/getsetai/fieldlink/internal/mcp"
-	"github.com/getsetai/fieldlink/internal/policy"
+	"github.com/gurupraman/fieldlink/internal/config"
+	fieldlinkmcp "github.com/gurupraman/fieldlink/internal/mcp"
+	"github.com/gurupraman/fieldlink/internal/policy"
 )
 
 func newServeCmd() *cobra.Command {
@@ -44,8 +44,7 @@ func runServe(ctx context.Context, configPath string) error {
 
 	logger.Info("starting fieldlink", "agent_id", cfg.AgentID, "transport", cfg.Server.Transport)
 
-	// TODO(week-2): replace with the grant-verifying policy engine.
-	eng := policy.NewAllowAll(logger)
+	eng := policy.NewGrantEngine(cfg.AgentID, cfg.Grant.Path, cfg.Grant.TrustedKey, logger)
 
 	s := fieldlinkmcp.New(eng)
 

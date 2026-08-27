@@ -1,0 +1,30 @@
+# Example signed grant for local development (examples/clients/dev.yaml).
+#
+# Signed with a throwaway keypair generated solely for this example; the
+# private half was discarded immediately after signing and is not, and has
+# never been, committed to this repository. Regenerate your own with:
+#
+#   fieldlink grant keygen --out-key /somewhere/offline/dev-signing.key \
+#                           --out-pub examples/grants/dev/trusted.pub
+#   fieldlink grant sign --grant examples/grants/dev/grant.yaml \
+#                         --key /somewhere/offline/dev-signing.key
+#
+# Scope is deliberately narrow — /tmp only — even for a throwaway dev grant.
+version: 1
+grant_id: 01K4DEV0000000000000000000
+agent_id: fieldlink-dev
+issued_at: 2026-08-27T00:00:00Z
+expires_at: 2027-02-23T00:00:00Z
+issuer: dev@local
+capabilities:
+  - capability: fs.read
+    constraints:
+      # Paths are matched after symlink resolution (design.md Appendix A),
+      # so both forms are listed: /tmp is a symlink to /private/tmp on
+      # macOS but not on Linux, where FieldLink actually deploys.
+      paths: ["/tmp/**", "/private/tmp/**"]
+      max_bytes: 1048576
+  - capability: fs.list
+    constraints:
+      paths: ["/tmp/**", "/private/tmp/**"]
+      recursive: true
