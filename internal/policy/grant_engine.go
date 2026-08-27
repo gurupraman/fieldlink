@@ -129,6 +129,8 @@ func (e *GrantEngine) Authorize(ctx context.Context, capability string, params m
 		return authorizeFSRead(constraints, params)
 	case "fs.list":
 		return authorizeFSList(constraints, params)
+	case "device.modbus.read":
+		return authorizeModbusRead(constraints, params)
 	default:
 		// The capability is present in the grant but this build has no
 		// constraint logic for it yet — fail closed rather than allow
@@ -161,6 +163,38 @@ func authorizeFSList(constraints map[string]any, params map[string]any) Decision
 		}
 	}
 	return Decision{Allowed: true}
+}
+
+func authorizeModbusRead(constraints map[string]any, params map[string]any) Decision {
+	device, _ := params["device"].(string)
+	register, _ := params["register"].(string)
+	if !stringInList(constraints["devices"], device) {
+		return Decision{Allowed: false, Reason: "device is not permitted"}
+	}
+	if !stringInList(constraints["registers"], register) {
+		return Decision{Allowed: false, Reason: "register is not permitted"}
+	}
+	return Decision{Allowed: true}
+}
+
+// stringInList reports whether s is exactly present in list (a []any of
+// strings, as decoded from grant YAML). Unlike pathMatchesAny, this is an
+// exact-match allow-list, not a glob — device and register names are
+// opaque identifiers, not paths.
+func stringInList(list any, s string) bool {
+	if s == "" {
+		return false
+	}
+	items, ok := list.([]any)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		if str, ok := item.(string); ok && str == s {
+			return true
+		}
+	}
+	return false
 }
 
 // pathMatchesAny reports whether path matches any doublestar glob in

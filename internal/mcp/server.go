@@ -10,6 +10,8 @@ import (
 
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/gurupraman/fieldlink/internal/config"
+	modbusexec "github.com/gurupraman/fieldlink/internal/exec/device/modbus"
 	fsexec "github.com/gurupraman/fieldlink/internal/exec/fs"
 	"github.com/gurupraman/fieldlink/internal/policy"
 )
@@ -31,7 +33,9 @@ const (
 // New builds the FieldLink MCP server and registers every tool this build
 // implements. eng is consulted by each tool on every call — see
 // internal/policy for why it is passed in rather than constructed here.
-func New(eng policy.Engine) *gosdk.Server {
+// devices is the config.yaml devices: section, needed by read_modbus to
+// resolve a device name to a connection and register map.
+func New(eng policy.Engine, devices map[string]config.Device) *gosdk.Server {
 	s := gosdk.NewServer(&gosdk.Implementation{
 		Name:    name,
 		Version: version,
@@ -80,6 +84,24 @@ func New(eng policy.Engine) *gosdk.Server {
 				OpenWorldHint:   boolPtr(false),
 			},
 		}, fsExec.ListDirectory)
+	}
+
+	if eng.Granted("device.modbus.read") {
+		modbusExec := modbusexec.NewExecutor(eng, devices)
+		gosdk.AddTool(s, &gosdk.Tool{
+			Name:  "read_modbus",
+			Title: "Read Modbus register",
+			Description: "Read a named register from a configured Modbus device. " +
+				"Register names come from the device's register map, available as " +
+				"a resource. Returns a decoded, scaled value with units. Read-only: " +
+				"write function codes are not implemented.",
+			Annotations: &gosdk.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: boolPtr(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   boolPtr(false),
+			},
+		}, modbusExec.ReadModbus)
 	}
 
 	return s

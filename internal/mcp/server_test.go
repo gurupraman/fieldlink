@@ -26,7 +26,7 @@ func TestServeReadFileAndListDirectory(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	s := New(policy.NewAllowAll(nil))
+	s := New(policy.NewAllowAll(nil), nil)
 
 	serverTransport, clientTransport := gosdk.NewInMemoryTransports()
 
@@ -123,7 +123,7 @@ func TestMissingGrantYieldsZeroTools(t *testing.T) {
 		filepath.Join(dir, "grant.yaml"), filepath.Join(dir, "trusted.pub"), nil)
 
 	ctx := context.Background()
-	s := New(eng)
+	s := New(eng, nil)
 
 	serverTransport, clientTransport := gosdk.NewInMemoryTransports()
 	serverSession, err := s.Connect(ctx, serverTransport, nil)
@@ -167,7 +167,7 @@ capabilities:
 `)
 
 	ctx := context.Background()
-	s := New(eng)
+	s := New(eng, nil)
 
 	serverTransport, clientTransport := gosdk.NewInMemoryTransports()
 	serverSession, err := s.Connect(ctx, serverTransport, nil)

@@ -46,7 +46,7 @@ func runServe(ctx context.Context, configPath string) error {
 
 	eng := policy.NewGrantEngine(cfg.AgentID, cfg.Grant.Path, cfg.Grant.TrustedKey, logger)
 
-	s := fieldlinkmcp.New(eng)
+	s := fieldlinkmcp.New(eng, cfg.Devices)
 
 	return fieldlinkmcp.RunStdio(ctx, s)
 }
