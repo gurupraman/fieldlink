@@ -5,7 +5,7 @@ accordingly.
 
 ## Reporting a vulnerability
 
-Email **security@<your-domain>** — please do not open a public issue.
+Email **gurupraman@yahoo.com** — please do not open a public issue.
 
 Include what you can: affected version, capability involved, and a reproduction. Expect an
 acknowledgement within 72 hours and an assessment within 7 days.
