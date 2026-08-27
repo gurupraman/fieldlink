@@ -5,10 +5,6 @@
 Modbus, OPC-UA, SMB shares, on-prem SQL. One static Go binary. No Docker, no Kubernetes, no cloud account.
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Claude reading a live Modbus register through FieldLink" width="760">
-</p>
-
-<p align="center">
   <a href="#quickstart"><img alt="Quickstart" src="https://img.shields.io/badge/quickstart-60_seconds-0f766e"></a>
   <a href="#read-only-by-design"><img alt="Read only" src="https://img.shields.io/badge/writes-not_implemented-d97706"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache_2.0-blue"></a>
