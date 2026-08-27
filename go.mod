@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
+	github.com/gopcua/opcua v0.9.1
 	github.com/gowebpki/jcs v1.0.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/microsoft/go-mssqldb v1.11.0

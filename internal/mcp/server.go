@@ -13,6 +13,7 @@ import (
 	"github.com/gurupraman/fieldlink/internal/config"
 	dbexec "github.com/gurupraman/fieldlink/internal/exec/db"
 	modbusexec "github.com/gurupraman/fieldlink/internal/exec/device/modbus"
+	opcuaexec "github.com/gurupraman/fieldlink/internal/exec/device/opcua"
 	fsexec "github.com/gurupraman/fieldlink/internal/exec/fs"
 	httpexec "github.com/gurupraman/fieldlink/internal/exec/httpx"
 	"github.com/gurupraman/fieldlink/internal/policy"
@@ -50,6 +51,7 @@ func New(eng policy.Engine, cfg *config.Config) *gosdk.Server {
 
 	fsExec := &fsexec.Executor{Policy: eng}
 	modbusExec := modbusexec.NewExecutor(eng, cfg.Devices)
+	opcuaExec := opcuaexec.NewExecutor(eng, cfg.OPCUAEndpoints)
 	httpExec := &httpexec.Executor{Policy: eng}
 	dbExec := dbexec.NewExecutor(eng, cfg.Datasources)
 
@@ -109,6 +111,21 @@ func New(eng policy.Engine, cfg *config.Config) *gosdk.Server {
 				OpenWorldHint:   boolPtr(false),
 			},
 		}, modbusExec.ReadModbus)
+	}
+
+	if eng.Granted("device.opcua.read") {
+		gosdk.AddTool(s, &gosdk.Tool{
+			Name:  "read_opcua",
+			Title: "Read OPC-UA nodes",
+			Description: "Read one or more OPC-UA node values by node ID from a " +
+				"configured endpoint. Read-only: no write service is implemented.",
+			Annotations: &gosdk.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: boolPtr(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   boolPtr(false),
+			},
+		}, opcuaExec.ReadOPCUA)
 	}
 
 	if eng.Granted("http.request") {

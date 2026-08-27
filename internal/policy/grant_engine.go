@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -179,6 +180,8 @@ func (e *GrantEngine) authorizeInner(ctx context.Context, capability string, par
 		return v.g.GrantID, authorizeHTTPRequest(constraints, params)
 	case "db.query":
 		return v.g.GrantID, authorizeDBQuery(constraints, params)
+	case "device.opcua.read":
+		return v.g.GrantID, authorizeOPCUARead(constraints, params)
 	default:
 		// The capability is present in the grant but this build has no
 		// constraint logic for it yet — fail closed rather than allow
@@ -269,6 +272,36 @@ func authorizeDBQuery(constraints map[string]any, params map[string]any) Decisio
 		}
 	}
 	return Decision{Allowed: true}
+}
+
+func authorizeOPCUARead(constraints map[string]any, params map[string]any) Decision {
+	endpoint, _ := params["endpoint"].(string)
+	if !stringInList(constraints["endpoints"], endpoint) {
+		return Decision{Allowed: false, Reason: "endpoint is not permitted"}
+	}
+	nodeIDs, _ := params["node_ids"].([]string)
+	prefixes := constraints["node_prefixes"]
+	for _, id := range nodeIDs {
+		if !anyPrefixMatches(prefixes, id) {
+			return Decision{Allowed: false, Reason: "a node id is not permitted"}
+		}
+	}
+	return Decision{Allowed: true}
+}
+
+// anyPrefixMatches reports whether s starts with any prefix in list (a
+// []any of strings, as decoded from grant YAML).
+func anyPrefixMatches(list any, s string) bool {
+	items, ok := list.([]any)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		if prefix, ok := item.(string); ok && strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // stringInList reports whether s is exactly present in list (a []any of

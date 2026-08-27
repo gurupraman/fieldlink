@@ -13,17 +13,44 @@ import (
 )
 
 type Config struct {
-	AgentID     string                `yaml:"agent_id"`
-	Server      ServerConfig          `yaml:"server"`
-	Grant       GrantConfig           `yaml:"grant"`
-	Audit       AuditConfig           `yaml:"audit"`
-	Devices     map[string]Device     `yaml:"devices"`
-	Datasources map[string]Datasource `yaml:"datasources"`
+	AgentID        string                   `yaml:"agent_id"`
+	Server         ServerConfig             `yaml:"server"`
+	Grant          GrantConfig              `yaml:"grant"`
+	Audit          AuditConfig              `yaml:"audit"`
+	Devices        map[string]Device        `yaml:"devices"`
+	Datasources    map[string]Datasource    `yaml:"datasources"`
+	OPCUAEndpoints map[string]OPCUAEndpoint `yaml:"opcua_endpoints"`
+	SMBShares      map[string]SMBShare      `yaml:"smb_shares"`
 
 	// ConfigDir is the directory config.yaml was loaded from, not a YAML
 	// field. It's how relative paths like a register's Lookup filename
 	// are resolved (design.md §9's example writes just "faults.yaml").
 	ConfigDir string `yaml:"-"`
+}
+
+// OPCUAEndpoint is one entry under opcua_endpoints: in config.yaml.
+// Unlike Modbus, OPC-UA node IDs are already self-describing
+// (ns=2;s=Boiler.Temperature), so there's no register-map layer here —
+// device.opcua.read takes node IDs directly, and the grant constrains
+// which ones by prefix (design.md Appendix A).
+type OPCUAEndpoint struct {
+	URL string `yaml:"url"` // e.g. "opc.tcp://10.20.5.10:4840"
+	// Auth is "anonymous" (default) or "username".
+	Auth        string   `yaml:"auth"`
+	UsernameEnv string   `yaml:"username_env"`
+	PasswordEnv string   `yaml:"password_env"`
+	Timeout     Duration `yaml:"timeout"`
+}
+
+// SMBShare is one entry under smb_shares: in config.yaml. read_file and
+// list_directory reach it via an smb://<name>/<path> URI — the same two
+// tools fs.read/fs.list already register, not a separate capability.
+type SMBShare struct {
+	Host        string `yaml:"host"`
+	Share       string `yaml:"share"`
+	UsernameEnv string `yaml:"username_env"`
+	PasswordEnv string `yaml:"password_env"`
+	Domain      string `yaml:"domain"`
 }
 
 // Datasource is one entry under datasources: in config.yaml (design.md
