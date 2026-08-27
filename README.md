@@ -149,10 +149,14 @@ fieldlink audit export --format cef > siem.log  # SIEM-ingestible
 
 ## Platforms
 
-`linux/amd64` · `linux/arm64` · `linux/arm/v7` — built `CGO_ENABLED=0`, under 20 MB, no runtime
-dependency. Runs on Yocto, Alpine, OpenWrt, and hardware old enough to vote.
+`linux/amd64` · `linux/arm64` · `linux/arm/v7` · `windows/amd64` — built `CGO_ENABLED=0`, no
+runtime dependency. The Linux binaries run on Yocto, Alpine, OpenWrt, and hardware old enough
+to vote. Windows works (tested in CI on a real Windows runner) but isn't packaged yet — no
+signed installer, no MSI, just the raw `.exe`, and Windows SmartScreen will flag it.
 
-Windows is v0.2.
+Currently ~30 MB stripped, over the <20 MB target — the tradeoff of shipping five protocol
+integrations (Modbus, OPC-UA, SMB, three SQL dialects) rather than deferring most of them
+past v0.1.
 
 ## Documentation
 

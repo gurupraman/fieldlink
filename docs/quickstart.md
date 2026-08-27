@@ -6,8 +6,9 @@ Code.
 
 ## 1. Build
 
-FieldLink isn't packaged yet (that lands in Week 5's release automation).
-For now, build from source:
+Tagged releases publish signed binaries for `linux/amd64`, `linux/arm64`,
+`linux/arm/v7`, and `windows/amd64` — see the repo's Releases page. Until
+there's a tagged release, build from source:
 
 ```bash
 git clone https://github.com/gurupraman/fieldlink.git
@@ -81,6 +82,95 @@ covered in [register-maps.md](register-maps.md) and
 `sign`, and `verify` are the same commands `fieldlink demo` uses
 internally; nothing about the demo path is a toy version of the real
 mechanism.
+
+## Remote deployment: MCP client and binary on different machines
+
+Everything above uses stdio: the MCP client *spawns* `fieldlink serve` as a
+local child process, so client and binary have to be on the same machine.
+That's not always what you want — a common real shape is `fieldlink`
+running on a gateway PC on the plant network (Windows or Linux) while the
+MCP client is an engineer's laptop, or a cloud-hosted agent, somewhere else
+entirely. stdio can't reach across that gap. HTTP can.
+
+### 1. Configure the binary for HTTP
+
+```yaml
+# config.yaml, on the machine running fieldlink
+agent_id: fieldlink-plant2-gw01
+
+server:
+  transport: http
+  http:
+    bind: 127.0.0.1:8765          # loopback only, unless you pass --allow-remote
+    allowed_origins: []            # exact origins only — see below
+    bearer_token_env: FIELDLINK_BEARER_TOKEN
+
+grant:
+  path: /etc/fieldlink/grant.yaml
+  trusted_key: /etc/fieldlink/trusted.pub
+```
+
+### 2. Start it
+
+**Same machine as the client**, or reachable only via an SSH tunnel /
+existing VPN (recommended — nothing extra to expose):
+
+```bash
+fieldlink serve --config config.yaml
+```
+
+Binds `127.0.0.1:8765` by default. No `--allow-remote`, no bearer token
+needed — nothing outside this host can reach it at all.
+
+**Actually reachable from another machine** — a real gateway deployment:
+
+```bash
+export FIELDLINK_BEARER_TOKEN="$(openssl rand -hex 32)"
+fieldlink serve --config config.yaml --allow-remote
+```
+
+`--allow-remote` is required the moment `bind` isn't a loopback address —
+`fieldlink` refuses to start otherwise, and this can't be worked around
+from config alone (it's a CLI flag, so a leaked config file can't silently
+turn into a network-exposed server). Once remote, a bearer token is
+mandatory too — there is no unauthenticated remote mode. Put a real
+secret in `FIELDLINK_BEARER_TOKEN`, not the placeholder above.
+
+This widens exposure beyond the host, so it logs a loud warning on every
+startup as a standing reminder.
+
+### 3. Point the client at it
+
+```json
+{
+  "mcpServers": {
+    "fieldlink": {
+      "url": "http://gateway-host:8765/mcp",
+      "headers": { "Authorization": "Bearer <the same token>" }
+    }
+  }
+}
+```
+
+(Exact config key names for a URL-based MCP server vary by client — check
+your client's docs. The endpoint is always `/mcp`.)
+
+### On Origin validation
+
+`allowed_origins` entries must be **exact** origins
+(`"https://your-editor.example.com"`) — no wildcards. This is a real
+limitation of the Go standard library's CSRF protection this is built on,
+not a FieldLink choice; a pattern like `"http://localhost:*"` will simply
+never match anything. List every origin (including port) you actually use.
+
+### Deploying the binary itself
+
+The binary is the same static executable regardless of where it runs —
+`linux/amd64`, `linux/arm64`, `linux/arm/v7` (Yocto, Alpine, OpenWrt,
+anything that can exec the right architecture — no packaging step needed),
+or `windows/amd64` (a raw `.exe`; no signed installer yet, so Windows
+SmartScreen will warn on first run). Copy the binary, `config.yaml`, and
+the grant files to the target machine; there's nothing else to install.
 
 ## Troubleshooting
 

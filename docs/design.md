@@ -71,8 +71,11 @@ MCP tools.
 - **All write operations.** See §2.3.
 - Any cloud component: no control plane, no account, no enrolment, no telemetry.
 - Multi-tenancy, RBAC, web UI.
-- Windows (v0.2 — the industrial edge is Linux, and MSI code-signing costs money
-  that does not yet exist).
+- ~~Windows~~ (was v0.2). A raw `windows/amd64` binary is now built, cross-compiled
+  and CI-tested on a real `windows-latest` runner — built ahead of the original
+  plan. What's still not done: no signed MSI installer, since code-signing still
+  costs money that does not yet exist. The unsigned `.exe` works; Windows
+  SmartScreen will complain about it, and there's no installer UX yet.
 - Model hosting or routing. FieldLink is a tool provider; the caller brings the model.
 - MCP `sampling` and `roots`. Server-initiated sampling is not needed and widens
   the trust surface for no benefit here.
@@ -710,13 +713,13 @@ dependency above was selected to preserve it.
 
 | Property | Target | Why this number |
 |---|---|---|
-| Binary size | < 20 MB stripped | Fits constrained edge flash |
+| Binary size | < 20 MB stripped | Currently ~30 MB — over target. Tradeoff of shipping all six capabilities plus OPC-UA/SMB/Windows now rather than deferring most of them past v0.1; unresolved. |
 | RSS at idle | < 30 MB | Industrial gateways commonly have 256 MB–1 GB total |
 | Cold start | < 200 ms | stdio transport launches per client session |
 | Grant verification | < 1 ms | Runs on every single call |
 | Modbus read | < 50 ms on a local segment | Dominated by the PLC, not by us |
 | Concurrent tool calls | 8, configurable | Serial and RTU devices require strict per-bus serialisation |
-| Platforms | linux/amd64, linux/arm64, linux/arm/v7 | Windows in v0.2 |
+| Platforms | linux/amd64, linux/arm64, linux/arm/v7, windows/amd64 | Windows binary is unsigned (no MSI yet) |
 
 ---
 
@@ -782,7 +785,8 @@ like it might turn around next month.
 
 Only after v0.1 shows evidence of use:
 
-- **v0.2** — Windows agent (signed MSI), OPC-UA subscriptions, SMB executor
+- **v0.2** — Signed Windows MSI installer (the raw binary itself now ships
+  ahead of schedule — see §2.2), OPC-UA subscriptions, SMB executor
   hardening, remote transport back to a coordinating service.
 - **v0.3** — fleet enrolment, multi-agent grant distribution, operational console.
 - **v1.0** — write capabilities, behind a physical-interlock design and a real
