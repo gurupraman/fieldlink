@@ -28,8 +28,13 @@ type HTTPOptions struct {
 	// set at most one.
 	BearerToken string
 	// OAuth, if set, validates access tokens against an external IdP
-	// instead of a static token. Mutually exclusive with BearerToken.
+	// instead of a static token. Mutually exclusive with BearerToken and
+	// LocalIssuer.
 	OAuth *OAuthOptions
+	// LocalIssuer, if set, makes FieldLink both issue and validate its
+	// own client-credentials tokens — the no-external-IdP OAuth path.
+	// Mutually exclusive with BearerToken and OAuth.
+	LocalIssuer *LocalIssuerOptions
 	// AllowedOrigins are exact origins allowed to make cross-origin
 	// requests (net/http's CrossOriginProtection — exact match only, see
 	// config.HTTPConfig.AllowedOrigins).
@@ -52,8 +57,14 @@ func RunHTTP(ctx context.Context, s *gosdk.Server, opts HTTPOptions) error {
 		logger = slog.Default()
 	}
 
-	if opts.BearerToken != "" && opts.OAuth != nil {
-		return fmt.Errorf("http: bearer_token_env and oauth are mutually exclusive — configure at most one")
+	authModes := 0
+	for _, set := range []bool{opts.BearerToken != "", opts.OAuth != nil, opts.LocalIssuer != nil} {
+		if set {
+			authModes++
+		}
+	}
+	if authModes > 1 {
+		return fmt.Errorf("http: bearer_token_env, oauth, and local_issuer are mutually exclusive — configure at most one")
 	}
 
 	host, _, err := net.SplitHostPort(opts.Bind)
@@ -65,8 +76,8 @@ func RunHTTP(ctx context.Context, s *gosdk.Server, opts HTTPOptions) error {
 	}
 	if opts.AllowRemote {
 		logger.Warn("HTTP transport is remote-reachable — this widens network exposure beyond this host", "bind", opts.Bind)
-		if opts.BearerToken == "" && opts.OAuth == nil {
-			return fmt.Errorf("http: --allow-remote requires an auth mechanism (bearer_token_env or oauth in config); there is no unauthenticated remote mode")
+		if authModes == 0 {
+			return fmt.Errorf("http: --allow-remote requires an auth mechanism (bearer_token_env, oauth, or local_issuer in config); there is no unauthenticated remote mode")
 		}
 	}
 
@@ -93,6 +104,29 @@ func RunHTTP(ctx context.Context, s *gosdk.Server, opts HTTPOptions) error {
 			ResourceMetadataURL: metadataURL,
 		})(h)
 		logger.Info("HTTP transport requires OAuth bearer tokens", "issuer", opts.OAuth.IssuerURL, "audience", opts.OAuth.Audience)
+	case opts.LocalIssuer != nil:
+		li, err := newLocalIssuer(*opts.LocalIssuer)
+		if err != nil {
+			return err
+		}
+		mux.Handle("/.well-known/openid-configuration", li.discoveryHandler())
+		mux.Handle("/oauth/jwks", li.jwksHandler())
+		mux.Handle("/oauth/token", li.tokenHandler())
+
+		vopts := li.verifierOptions()
+		mux.Handle("/.well-known/oauth-protected-resource", protectedResourceMetadataHandler(vopts))
+
+		// newStaticOIDCVerifier, not newOIDCVerifier: the issuer is this
+		// same not-yet-listening server, so verification uses the key
+		// already held in memory rather than fetching discovery/JWKS
+		// over HTTP from itself.
+		verifier := newStaticOIDCVerifier(vopts.IssuerURL, vopts.Audience, &li.key.PublicKey, vopts.RequiredScopes)
+		h = sdkauth.RequireBearerToken(verifier, &sdkauth.RequireBearerTokenOptions{
+			Scopes:              opts.LocalIssuer.RequiredScopes,
+			ResourceMetadataURL: vopts.ResourceURL,
+		})(h)
+		logger.Info("HTTP transport requires tokens from the built-in local issuer",
+			"clients", len(opts.LocalIssuer.Clients), "signing_key", opts.LocalIssuer.SigningKeyPath)
 	case opts.BearerToken != "":
 		h = requireBearerToken(opts.BearerToken, h)
 	}

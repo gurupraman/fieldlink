@@ -146,8 +146,50 @@ type HTTPConfig struct {
 	// identity provider instead of a static shared token — FieldLink acts
 	// as an OAuth resource server, never an authorization server; it
 	// verifies tokens someone else's IdP issued; it doesn't issue them.
-	// Mutually exclusive with BearerTokenEnv.
+	// Mutually exclusive with BearerTokenEnv and LocalIssuer.
 	OAuth *OAuthConfig `yaml:"oauth"`
+	// LocalIssuer, when set, makes FieldLink issue its own short-lived
+	// OAuth access tokens via the client-credentials grant (RFC 6749
+	// §4.4) to a static, config-defined list of clients — for operators
+	// with no external identity provider at all. This is deliberately
+	// narrow: no user accounts, no login UI, no dynamic client
+	// registration. FieldLink signs tokens with a locally-held key and
+	// validates them the exact same way it validates a real external
+	// IdP's tokens — same discovery document, same JWKS shape — so this
+	// is a config choice, not a second code path. Mutually exclusive with
+	// BearerTokenEnv and OAuth.
+	LocalIssuer *LocalIssuerConfig `yaml:"local_issuer"`
+}
+
+// LocalIssuerConfig configures FieldLink's own minimal, built-in
+// authorization server for client-credentials tokens.
+type LocalIssuerConfig struct {
+	// SigningKeyPath is where the issuer's RSA signing key lives,
+	// generated on first run if absent — same pattern as the grant
+	// signing key, but this one lives on the FieldLink host itself,
+	// since (unlike the grant key) it never needs to be offline: a
+	// leaked issuer key only lets someone mint tokens for capabilities
+	// the grant would still independently gate.
+	SigningKeyPath string `yaml:"signing_key_path"`
+	// TokenTTL bounds how long an issued access token is valid for.
+	// Defaults to 15 minutes if zero.
+	TokenTTL Duration `yaml:"token_ttl"`
+	// Clients is the static allow-list of client_id -> config. A client
+	// not in this map cannot obtain a token, regardless of what secret
+	// it presents.
+	Clients map[string]LocalIssuerClient `yaml:"clients"`
+}
+
+type LocalIssuerClient struct {
+	// SecretEnv names an environment variable holding this client's
+	// secret. Never set inline in config, same discipline as datasource
+	// DSNs and the bearer token.
+	SecretEnv string `yaml:"secret_env"`
+	// Scopes this client may request. A client requesting a scope
+	// outside this list has that scope silently dropped from the issued
+	// token, not rejected outright — mirrors standard OAuth
+	// client-credentials behavior (RFC 6749 §3.3).
+	Scopes []string `yaml:"scopes"`
 }
 
 type TLSConfig struct {

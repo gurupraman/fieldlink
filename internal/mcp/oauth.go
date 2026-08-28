@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto"
 	"fmt"
 	"net/http"
 	"slices"
@@ -31,13 +32,33 @@ type OAuthOptions struct {
 // /.well-known/openid-configuration and then the JWKS it points to — so a
 // misconfigured issuer URL fails fast at startup, not on the first
 // request.
+//
+// This is for external IdPs only. FieldLink's own local_issuer mode uses
+// newStaticOIDCVerifier instead — a server can't fetch its own discovery
+// document over the network before it has started listening, so the
+// self-issued case is verified in-process, without an HTTP round trip.
 func newOIDCVerifier(ctx context.Context, opts OAuthOptions) (sdkauth.TokenVerifier, error) {
 	provider, err := oidc.NewProvider(ctx, opts.IssuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("oauth: discovering issuer %s: %w", opts.IssuerURL, err)
 	}
-	verifier := provider.Verifier(&oidc.Config{ClientID: opts.Audience})
+	return verifierFromIDTokenVerifier(provider.Verifier(&oidc.Config{ClientID: opts.Audience}), opts.RequiredScopes), nil
+}
 
+// newStaticOIDCVerifier builds a TokenVerifier backed by a fixed, in-memory
+// public key rather than a KeySet fetched over HTTP — see newOIDCVerifier's
+// doc comment for why the local issuer needs this instead.
+func newStaticOIDCVerifier(issuerURL, audience string, pub crypto.PublicKey, requiredScopes []string) sdkauth.TokenVerifier {
+	keySet := &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{pub}}
+	verifier := oidc.NewVerifier(issuerURL, keySet, &oidc.Config{ClientID: audience})
+	return verifierFromIDTokenVerifier(verifier, requiredScopes)
+}
+
+// verifierFromIDTokenVerifier wraps a go-oidc IDTokenVerifier (however its
+// key material was obtained) into an sdkauth.TokenVerifier, enforcing
+// FieldLink's required-scope check on top — the one piece of logic shared
+// between the external-IdP and local-issuer paths.
+func verifierFromIDTokenVerifier(verifier *oidc.IDTokenVerifier, requiredScopes []string) sdkauth.TokenVerifier {
 	return func(ctx context.Context, token string, _ *http.Request) (*sdkauth.TokenInfo, error) {
 		idToken, err := verifier.Verify(ctx, token)
 		if err != nil {
@@ -52,7 +73,7 @@ func newOIDCVerifier(ctx context.Context, opts OAuthOptions) (sdkauth.TokenVerif
 		_ = idToken.Claims(&claims)
 		scopes := splitScopes(claims.Scope)
 
-		for _, required := range opts.RequiredScopes {
+		for _, required := range requiredScopes {
 			if !slices.Contains(scopes, required) {
 				return nil, fmt.Errorf("%w: missing required scope %q", sdkauth.ErrInvalidToken, required)
 			}
@@ -63,7 +84,7 @@ func newOIDCVerifier(ctx context.Context, opts OAuthOptions) (sdkauth.TokenVerif
 			Expiration: idToken.Expiry,
 			UserID:     idToken.Subject,
 		}, nil
-	}, nil
+	}
 }
 
 func splitScopes(s string) []string {

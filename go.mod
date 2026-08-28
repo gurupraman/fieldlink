@@ -5,6 +5,8 @@ go 1.27.0
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/go-jose/go-jose/v4 v4.1.4
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gopcua/opcua v0.9.1
 	github.com/gowebpki/jcs v1.0.1
 	github.com/hirochachacha/go-smb2 v1.1.0
@@ -19,7 +21,6 @@ require (
 
 require (
 	github.com/geoffgarside/ber v1.1.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/goburrow/serial v0.1.0 // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect

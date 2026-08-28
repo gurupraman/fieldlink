@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -81,16 +82,40 @@ func runServe(ctx context.Context, configPath string, allowRemote bool) error {
 			opts.TLSCertFile = httpCfg.TLS.CertFile
 			opts.TLSKeyFile = httpCfg.TLS.KeyFile
 		}
+		scheme := "http"
+		if httpCfg.TLS != nil {
+			scheme = "https"
+		}
+
 		if httpCfg.OAuth != nil {
-			scheme := "http"
-			if httpCfg.TLS != nil {
-				scheme = "https"
-			}
 			opts.OAuth = &fieldlinkmcp.OAuthOptions{
 				IssuerURL:      httpCfg.OAuth.IssuerURL,
 				Audience:       httpCfg.OAuth.Audience,
 				RequiredScopes: httpCfg.OAuth.RequiredScopes,
 				ResourceURL:    scheme + "://" + httpCfg.Bind + "/mcp",
+			}
+		}
+		if httpCfg.LocalIssuer != nil {
+			keyPath := httpCfg.LocalIssuer.SigningKeyPath
+			if keyPath == "" {
+				keyPath = cfg.ConfigDir + "/local-issuer.key"
+			}
+			clients := make(map[string]fieldlinkmcp.LocalIssuerClientOptions, len(httpCfg.LocalIssuer.Clients))
+			for id, c := range httpCfg.LocalIssuer.Clients {
+				if c.SecretEnv == "" {
+					return fmt.Errorf("serve: local_issuer client %q has no secret_env set", id)
+				}
+				secret := os.Getenv(c.SecretEnv)
+				if secret == "" {
+					return fmt.Errorf("serve: local_issuer client %q: environment variable %s is not set", id, c.SecretEnv)
+				}
+				clients[id] = fieldlinkmcp.LocalIssuerClientOptions{Secret: secret, Scopes: c.Scopes}
+			}
+			opts.LocalIssuer = &fieldlinkmcp.LocalIssuerOptions{
+				SigningKeyPath: keyPath,
+				TokenTTL:       time.Duration(httpCfg.LocalIssuer.TokenTTL),
+				Clients:        clients,
+				SelfURL:        scheme + "://" + httpCfg.Bind,
 			}
 		}
 		return fieldlinkmcp.RunHTTP(ctx, s, opts)

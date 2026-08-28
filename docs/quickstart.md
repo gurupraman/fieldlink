@@ -94,14 +94,17 @@ entirely. stdio can't reach across that gap. HTTP can.
 
 ### 1. Pick an auth mode
 
-Two options, both enforced the same way: `--allow-remote` refuses to start
-unless one of them is configured — there is no unauthenticated remote mode.
+Three options, all enforced the same way: `--allow-remote` refuses to start
+unless exactly one is configured — there is no unauthenticated remote mode,
+and the three are mutually exclusive.
 
-**OAuth (recommended for anything beyond a quick test).** FieldLink acts as
-an OAuth 2.1 *resource server* — it validates access tokens your existing
-identity provider (Okta, Azure AD, Auth0, Keycloak, anything with standard
-OIDC discovery) already issues. It does not run its own auth server or
-issue tokens itself.
+**OAuth against your own IdP (recommended if you already have one).**
+FieldLink acts as an OAuth 2.1 *resource server* — it validates access
+tokens your existing identity provider (Okta, Azure AD, Auth0, Keycloak,
+anything with standard OIDC discovery) already issues. It does not run its
+own auth server or issue tokens itself, and every deployment points at
+whatever IdP *that* operator already has — FieldLink never hosts a shared
+one.
 
 ```yaml
 server:
@@ -121,7 +124,45 @@ Compliant clients discover how to authenticate automatically via
 `GET /.well-known/oauth-protected-resource` (RFC 9728) — no manually
 copy-pasted header on the client side.
 
-**Static bearer token** — simpler, no IdP required, less individually
+**Built-in local issuer (no external IdP at all).** FieldLink issues its
+own short-lived OAuth access tokens via the client-credentials grant (RFC
+6749 §4.4) to a static, config-defined client list. This is deliberately
+narrow — no user accounts, no login UI, no dynamic client registration —
+but it's a real, standard-shaped OAuth flow: FieldLink generates and
+persists its own signing key on first run, serves real discovery/JWKS
+endpoints, and validates the tokens it issues through the exact same code
+path used for an external IdP.
+
+```yaml
+server:
+  transport: http
+  http:
+    bind: 0.0.0.0:8765
+    tls:
+      cert_file: /etc/fieldlink/tls/server.crt
+      key_file: /etc/fieldlink/tls/server.key
+    local_issuer:
+      token_ttl: 15m
+      clients:
+        engineer-laptop:
+          secret_env: FIELDLINK_CLIENT_SECRET
+          scopes: ["fieldlink:read"]
+```
+
+A client obtains a token itself with a standard client-credentials POST:
+
+```bash
+curl -u "engineer-laptop:$FIELDLINK_CLIENT_SECRET" \
+  -d grant_type=client_credentials -d scope=fieldlink:read \
+  https://gateway-host:8765/oauth/token
+```
+
+...then uses the returned `access_token` as the bearer token for `/mcp`,
+same as any OAuth flow. Revoking one client means removing its entry from
+`clients:` (or rotating its `secret_env` value) and restarting — no other
+client is affected, since each has its own secret.
+
+**Static bearer token** — simplest, no IdP required, least individually
 revocable (one shared secret for every client):
 
 ```yaml
