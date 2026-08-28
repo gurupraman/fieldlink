@@ -151,7 +151,8 @@ func (e *GrantEngine) Authorize(ctx context.Context, capability string, params m
 			status = "allow"
 		}
 		digest := audit.ParamsDigest(params)
-		if err := e.Audit.Append(grantID, capability, status, decision.Reason, digest); err != nil {
+		callerID := CallerIDFromContext(ctx)
+		if err := e.Audit.Append(grantID, callerID, capability, status, decision.Reason, digest); err != nil {
 			e.logger.Error("audit: failed to append record", "err", err)
 		}
 	}

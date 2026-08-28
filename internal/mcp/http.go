@@ -12,6 +12,8 @@ import (
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/gurupraman/fieldlink/internal/policy"
 )
 
 // HTTPOptions configures the Streamable HTTP transport (design.md §4.1).
@@ -102,7 +104,7 @@ func RunHTTP(ctx context.Context, s *gosdk.Server, opts HTTPOptions) error {
 		h = sdkauth.RequireBearerToken(verifier, &sdkauth.RequireBearerTokenOptions{
 			Scopes:              opts.OAuth.RequiredScopes,
 			ResourceMetadataURL: metadataURL,
-		})(h)
+		})(attachCallerID(h))
 		logger.Info("HTTP transport requires OAuth bearer tokens", "issuer", opts.OAuth.IssuerURL, "audience", opts.OAuth.Audience)
 	case opts.LocalIssuer != nil:
 		li, err := newLocalIssuer(*opts.LocalIssuer)
@@ -124,7 +126,7 @@ func RunHTTP(ctx context.Context, s *gosdk.Server, opts HTTPOptions) error {
 		h = sdkauth.RequireBearerToken(verifier, &sdkauth.RequireBearerTokenOptions{
 			Scopes:              opts.LocalIssuer.RequiredScopes,
 			ResourceMetadataURL: vopts.ResourceURL,
-		})(h)
+		})(attachCallerID(h))
 		logger.Info("HTTP transport requires tokens from the built-in local issuer",
 			"clients", len(opts.LocalIssuer.Clients), "signing_key", opts.LocalIssuer.SigningKeyPath)
 	case opts.BearerToken != "":
@@ -170,6 +172,22 @@ func RunHTTP(ctx context.Context, s *gosdk.Server, opts HTTPOptions) error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// attachCallerID bridges sdkauth's TokenInfo (populated by
+// sdkauth.RequireBearerToken, which must run before this in the handler
+// chain) into policy's transport-agnostic caller-identity context — so the
+// audit log can attribute a call to the specific OAuth client that made
+// it, not just the installation's agent_id. Only meaningful for OAuth and
+// local_issuer; the static shared bearer token carries no per-caller
+// identity, so there's nothing to attach for that mode.
+func attachCallerID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if info := sdkauth.TokenInfoFromContext(r.Context()); info != nil && info.UserID != "" {
+			r = r.WithContext(policy.WithCallerID(r.Context(), info.UserID))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func requireBearerToken(token string, next http.Handler) http.Handler {

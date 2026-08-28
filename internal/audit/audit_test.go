@@ -15,10 +15,10 @@ func TestAppendAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := c.Append("g1", "fs.read", "allow", "", ParamsDigest(map[string]any{"path": "/tmp/x"})); err != nil {
+	if err := c.Append("g1", "", "fs.read", "allow", "", ParamsDigest(map[string]any{"path": "/tmp/x"})); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
-	if err := c.Append("g1", "fs.list", "deny", "path is not permitted", ParamsDigest(map[string]any{"path": "/etc"})); err != nil {
+	if err := c.Append("g1", "", "fs.list", "deny", "path is not permitted", ParamsDigest(map[string]any{"path": "/etc"})); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
 	if err := c.Close(); err != nil {
@@ -45,8 +45,8 @@ func TestVerifyDetectsTamperedField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Append("g1", "fs.read", "allow", "", ParamsDigest(nil))
-	c.Append("g1", "fs.read", "deny", "denied", ParamsDigest(nil))
+	c.Append("g1", "", "fs.read", "allow", "", ParamsDigest(nil))
+	c.Append("g1", "", "fs.read", "deny", "denied", ParamsDigest(nil))
 	c.Close()
 
 	data, err := os.ReadFile(path)
@@ -84,9 +84,9 @@ func TestVerifyDetectsTruncatedChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Append("g1", "fs.read", "allow", "", ParamsDigest(nil))
-	c.Append("g1", "fs.read", "allow", "", ParamsDigest(nil))
-	c.Append("g1", "fs.read", "allow", "", ParamsDigest(nil))
+	c.Append("g1", "", "fs.read", "allow", "", ParamsDigest(nil))
+	c.Append("g1", "", "fs.read", "allow", "", ParamsDigest(nil))
+	c.Append("g1", "", "fs.read", "allow", "", ParamsDigest(nil))
 	c.Close()
 
 	data, err := os.ReadFile(path)
@@ -118,7 +118,7 @@ func TestChainResumesAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c1.Append("g1", "fs.read", "allow", "", ParamsDigest(nil))
+	c1.Append("g1", "", "fs.read", "allow", "", ParamsDigest(nil))
 	c1.Close()
 
 	// Simulate a process restart: a fresh Chain opened against the same
@@ -128,7 +128,7 @@ func TestChainResumesAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c2.Append("g1", "fs.read", "allow", "", ParamsDigest(nil))
+	c2.Append("g1", "", "fs.read", "allow", "", ParamsDigest(nil))
 	c2.Close()
 
 	res, err := Verify(path)
@@ -140,6 +140,36 @@ func TestChainResumesAcrossRestart(t *testing.T) {
 	}
 	if res.RecordCount != 2 {
 		t.Errorf("RecordCount = %d, want 2", res.RecordCount)
+	}
+}
+
+func TestAppend_RecordsCallerID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+
+	c, err := Open(path, "fieldlink-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Append("g1", "engineer-laptop", "device.modbus.read", "allow", "", ParamsDigest(nil)); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	c.Close()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"caller_id":"engineer-laptop"`) {
+		t.Fatalf("expected caller_id in the record, got: %s", data)
+	}
+
+	res, err := Verify(path)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if !res.OK {
+		t.Fatalf("expected a valid chain, got: %s", res.BrokenReason)
 	}
 }
 
@@ -161,8 +191,8 @@ func TestExportCEF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Append("g1", "fs.read", "allow", "", ParamsDigest(nil))
-	c.Append("g1", "fs.list", "deny", "path is not permitted", ParamsDigest(nil))
+	c.Append("g1", "engineer-laptop", "fs.read", "allow", "", ParamsDigest(nil))
+	c.Append("g1", "", "fs.list", "deny", "path is not permitted", ParamsDigest(nil))
 	c.Close()
 
 	var buf strings.Builder
@@ -181,5 +211,8 @@ func TestExportCEF(t *testing.T) {
 	}
 	if !strings.Contains(lines[1], "outcome=deny") {
 		t.Errorf("expected outcome=deny in %q", lines[1])
+	}
+	if !strings.Contains(lines[0], "cs4Label=callerId cs4=engineer-laptop") {
+		t.Errorf("expected callerId in CEF output: %q", lines[0])
 	}
 }

@@ -29,10 +29,17 @@ import (
 // Record is one audit entry. Hash and PrevHash are computed by Append, not
 // set by callers.
 type Record struct {
-	Seq          int64  `json:"seq"`
-	TS           string `json:"ts"`
-	AgentID      string `json:"agent_id"`
-	GrantID      string `json:"grant_id,omitempty"`
+	Seq     int64  `json:"seq"`
+	TS      string `json:"ts"`
+	AgentID string `json:"agent_id"`
+	GrantID string `json:"grant_id,omitempty"`
+	// CallerID identifies the specific caller within this installation,
+	// when known — an OAuth token's subject claim (design.md's OAuth
+	// support, and the built-in local_issuer). Empty for stdio, for the
+	// static shared bearer token, or any transport with no per-caller
+	// identity to attribute — AgentID still identifies the installation
+	// either way.
+	CallerID     string `json:"caller_id,omitempty"`
 	SessionID    string `json:"session_id,omitempty"`
 	Capability   string `json:"capability"`
 	Decision     string `json:"decision"` // "allow" | "deny"
@@ -93,8 +100,9 @@ func (c *Chain) Close() error {
 // Append writes one record for a policy decision. digest should be a
 // digest of the call's parameters (never the parameters themselves —
 // design.md §8: "An audit log that quietly accumulates plaintext ERP
-// queries becomes its own data-protection problem").
-func (c *Chain) Append(grantID, capability, decision, reason, paramsDigest string) error {
+// queries becomes its own data-protection problem"). callerID may be
+// empty when no per-caller identity is available for this call.
+func (c *Chain) Append(grantID, callerID, capability, decision, reason, paramsDigest string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -104,6 +112,7 @@ func (c *Chain) Append(grantID, capability, decision, reason, paramsDigest strin
 		TS:           time.Now().UTC().Format(time.RFC3339Nano),
 		AgentID:      c.agentID,
 		GrantID:      grantID,
+		CallerID:     callerID,
 		SessionID:    c.sessionID,
 		Capability:   capability,
 		Decision:     decision,

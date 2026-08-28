@@ -42,9 +42,9 @@ func recordToCEF(rec Record) string {
 	}
 	ext := fmt.Sprintf(
 		"rt=%s suser=%s cs1Label=grantId cs1=%s cs2Label=sessionId cs2=%s "+
-			"cs3Label=paramsDigest cs3=%s outcome=%s reason=%s cnt=%d",
+			"cs3Label=paramsDigest cs3=%s cs4Label=callerId cs4=%s outcome=%s reason=%s cnt=%d",
 		rec.TS, cefEscape(rec.AgentID), cefEscape(rec.GrantID), cefEscape(rec.SessionID),
-		cefEscape(rec.ParamsDigest), cefEscape(rec.Decision), cefEscape(rec.Reason), rec.Seq,
+		cefEscape(rec.ParamsDigest), cefEscape(rec.CallerID), cefEscape(rec.Decision), cefEscape(rec.Reason), rec.Seq,
 	)
 	return fmt.Sprintf(
 		"CEF:0|FieldLink|fieldlink|0.1.0-dev|%s|%s %s|%s|%s",

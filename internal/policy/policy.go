@@ -11,6 +11,32 @@ import (
 	"log/slog"
 )
 
+type callerIDKey struct{}
+
+// WithCallerID attaches a caller identity to ctx for audit attribution —
+// e.g. an OAuth access token's subject claim. This package stays
+// transport-agnostic on purpose (design.md: executors and the trust
+// boundary shouldn't be coupled to the MCP/HTTP layer, since a gRPC
+// transport lands in v0.2): it doesn't know or care whether the identity
+// came from a bearer token, an mTLS client cert, or something else — it
+// just carries an opaque string through to whatever calls
+// CallerIDFromContext. An empty id is a no-op, so callers that have no
+// identity to attach (stdio, the static shared bearer token) don't need a
+// special case.
+func WithCallerID(ctx context.Context, id string) context.Context {
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, callerIDKey{}, id)
+}
+
+// CallerIDFromContext returns the caller identity attached by
+// WithCallerID, or "" if none was attached.
+func CallerIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(callerIDKey{}).(string)
+	return id
+}
+
 // Decision is the result of a policy check.
 type Decision struct {
 	Allowed bool
