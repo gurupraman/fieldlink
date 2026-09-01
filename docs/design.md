@@ -3,7 +3,7 @@
 **An MCP server for systems that have no API.**
 
 **Version:** 0.1 — design for first public release
-**Author:** GetSetAI
+**Author:** gurupraman
 **Date:** August 2026
 **Status:** Design. Not yet built.
 **License (planned):** Apache-2.0
