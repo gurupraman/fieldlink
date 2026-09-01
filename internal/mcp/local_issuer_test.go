@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -91,13 +92,25 @@ func TestHTTPTransport_LocalIssuerEndToEnd(t *testing.T) {
 		t.Errorf("token_type = %q, want Bearer", tok.TokenType)
 	}
 
-	// 3. That token authenticates a real /mcp request.
-	req, _ := http.NewRequest(http.MethodGet, selfURL+"/mcp", nil)
+	// 3. That token authenticates a real /mcp request. POST, not GET: a
+	// bare GET to /mcp is the spec's standalone-SSE-stream request, which
+	// stays open server-side rather than returning a bounded response —
+	// exactly the kind of request that must have its body drained before
+	// Close(), or the underlying connection can't close cleanly (a real
+	// difference this project hit only on Windows CI, not locally: an
+	// un-drained response Close() forces an abrupt connection reset that
+	// srv.Shutdown() then waits on past its timeout). POST is also just
+	// the semantically correct choice — it's what an actual MCP tool
+	// call uses, and what this check is really trying to verify.
+	req, _ := http.NewRequest(http.MethodPost, selfURL+"/mcp", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /mcp with issued token: %v", err)
+		t.Fatalf("POST /mcp with issued token: %v", err)
 	}
+	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
 		t.Fatal("a token freshly issued by the local issuer was rejected by its own verifier")
@@ -177,6 +190,11 @@ func TestHTTPTransport_LocalIssuerEnforcesRequiredScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /mcp: %v", err)
 	}
+	// Rejected by the auth middleware before reaching the real streaming
+	// handler, so this body is always small and bounded regardless of
+	// GET/POST — draining is just consistent hygiene here, not fixing a
+	// live bug the way it is in TestHTTPTransport_LocalIssuerEndToEnd.
+	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status = %d, want 401/403 for a token missing the required scope", resp.StatusCode)

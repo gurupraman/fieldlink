@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -212,6 +213,15 @@ func TestRunHTTP_TLS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTTPS GET failed — TLS is not actually serving: %v", err)
 	}
+	// GET /mcp is the spec's standalone-SSE-stream request, so the
+	// response can be a long-lived stream, not a small bounded body —
+	// closing it without draining first forces an abrupt connection
+	// reset rather than a clean close. On this project that difference
+	// only showed up as a real, non-hypothetical failure on Windows CI
+	// (srv.Shutdown below blocked past its 5s timeout waiting for the
+	// connection to close), never locally — drain before Close()
+	// unconditionally so this class of bug can't recur.
+	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 
 	cancel()

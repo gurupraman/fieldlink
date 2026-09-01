@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"io"
+
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -288,6 +290,7 @@ func TestHTTPTransport_OAuthEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /mcp with valid token: %v", err)
 	}
+	io.Copy(io.Discard, resp3.Body) // drain before Close(); see TestRunHTTP_TLS's comment
 	resp3.Body.Close()
 	if resp3.StatusCode == http.StatusUnauthorized {
 		t.Fatal("a validly signed, correctly audienced token was rejected")
