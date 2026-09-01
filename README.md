@@ -147,6 +147,7 @@ Full walkthrough — all three auth modes, TLS setup, and the exact-origin CORS 
 | SMB shares | `read_file`, `list_directory` | Pure-Go SMB2. No kernel mount, no root. Via `smb://<share-name>/<path>`. |
 | MSSQL, Oracle, Postgres | `query_database` | Named datasources only. `SELECT`/`WITH` only. |
 | Internal HTTP | `call_internal_http` | GET and HEAD, restricted to allow-listed CIDRs. |
+| Legacy SOAP/WSDL services | `call_soap` | Named, pre-declared operations only — no WSDL parsing, no arbitrary XML. See [trust-model.md](docs/trust-model.md#soap-is-a-seventh-capability-and-a-different-kind-of-trust) for why this one asks you to trust something FieldLink can't verify from the wire, unlike everything else in this table. |
 
 It also exposes register maps, fault-code tables and database schemas as MCP **resources**, so
 the model can ask for `boiler_temp` instead of guessing at "holding register 40021, swapped

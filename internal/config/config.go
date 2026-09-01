@@ -21,6 +21,7 @@ type Config struct {
 	Datasources    map[string]Datasource    `yaml:"datasources"`
 	OPCUAEndpoints map[string]OPCUAEndpoint `yaml:"opcua_endpoints"`
 	SMBShares      map[string]SMBShare      `yaml:"smb_shares"`
+	SOAPEndpoints  map[string]SOAPEndpoint  `yaml:"soap_endpoints"`
 
 	// ConfigDir is the directory config.yaml was loaded from, not a YAML
 	// field. It's how relative paths like a register's Lookup filename
@@ -52,6 +53,50 @@ type SMBShare struct {
 	UsernameEnv string `yaml:"username_env"`
 	PasswordEnv string `yaml:"password_env"`
 	Domain      string `yaml:"domain"`
+}
+
+// SOAPEndpoint is one entry under soap_endpoints: in config.yaml. This is
+// a capability beyond design.md's original six ("no more") — added for
+// legacy systems that only expose a SOAP/WSDL interface, most commonly
+// still true of older ERP/MES/historian systems that will never get a
+// REST API. There is no WSDL parsing and no dynamic operation
+// construction: each usable operation is a named, pre-declared XML
+// envelope template, the same "operator declares the known-good shape,
+// the model only supplies values within it" pattern as a Modbus register
+// map. See SOAPOperation for why this is the safest honest design given
+// SOAP has no equivalent of HTTP GET's "conventionally read-only"
+// property that call_internal_http's GET-only restriction leans on.
+type SOAPEndpoint struct {
+	URL     string   `yaml:"url"`
+	Timeout Duration `yaml:"timeout"`
+	// UsernameEnv/PasswordEnv, if both set, send HTTP Basic auth — the
+	// common case for legacy SOAP services fronted by IIS/WCF. Never set
+	// inline in config, same discipline as every other credential here.
+	UsernameEnv string `yaml:"username_env"`
+	PasswordEnv string `yaml:"password_env"`
+
+	Operations map[string]SOAPOperation `yaml:"operations"`
+}
+
+// SOAPOperation is one named, pre-declared SOAP call. Template is the
+// literal SOAP XML envelope to send, with Go text/template placeholders
+// (e.g. {{.ItemCode}}) for the parameters the caller supplies. Every
+// parameter value is XML-escaped before substitution — the template
+// itself is trusted operator-authored config, but the values filled into
+// it come from a tool call and are not.
+//
+// The operator is attesting this operation is read-only by declaring it
+// here; FieldLink cannot verify that from the wire the way it can (loosely)
+// trust HTTP GET's conventions. This is the same class of residual trust
+// design.md already documents for db.query: "a too-permissive database
+// user defeats this — use a read-only account." Don't declare a SOAP
+// operation here if you haven't confirmed it has no side effect.
+type SOAPOperation struct {
+	// SOAPAction is sent as the SOAPAction HTTP header (SOAP 1.1) — many
+	// legacy services require an exact match against what the WSDL
+	// declares, so this isn't inferred or guessed.
+	SOAPAction string `yaml:"soap_action"`
+	Template   string `yaml:"template"`
 }
 
 // Datasource is one entry under datasources: in config.yaml (design.md

@@ -53,6 +53,12 @@ and never touches this host. Capabilities absent from the grant are never advert
 
 ## Capabilities (v0.1, all read-only)
 
+Originally fixed at six ("six capabilities, no more" — see HANDOFF.md). `soap.call`
+is a deliberate, documented exception for legacy SOAP/WSDL-only systems — see
+docs/trust-model.md for why it can't offer the same wire-enforced read-only
+guarantee the other six do. Don't treat its existence as license to add an eighth
+without the same level of justification.
+
 | Capability | MCP tool | Notes |
 |---|---|---|
 | `fs.read` | `read_file` | glob-constrained, symlinks resolved before matching |
@@ -60,7 +66,8 @@ and never touches this host. Capabilities absent from the grant are never advert
 | `db.query` | `query_database` | named datasources only; `SELECT`/`WITH` only; bound params |
 | `http.request` | `call_internal_http` | GET/HEAD; CIDR check after DNS; metadata endpoints hard-blocked |
 | `device.modbus.read` | `read_modbus` | FC 1–4 only; symbolic register names from a register map |
-| `device.opcua.read` | `read_opcua` | anonymous/username auth; browse yes, subscriptions v0.2 |
+| `device.opcua.read` | `read_opcua`, `browse_opcua` | anonymous/username auth; both gated by the same `node_prefixes` grant constraint |
+| `soap.call` | `call_soap` | named, pre-declared XML templates only; no WSDL parsing; operator attests read-only |
 
 ## Stack
 

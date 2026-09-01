@@ -183,6 +183,8 @@ func (e *GrantEngine) authorizeInner(ctx context.Context, capability string, par
 		return v.g.GrantID, authorizeDBQuery(constraints, params)
 	case "device.opcua.read":
 		return v.g.GrantID, authorizeOPCUARead(constraints, params)
+	case "soap.call":
+		return v.g.GrantID, authorizeSOAPCall(constraints, params)
 	default:
 		// The capability is present in the grant but this build has no
 		// constraint logic for it yet — fail closed rather than allow
@@ -225,6 +227,18 @@ func authorizeModbusRead(constraints map[string]any, params map[string]any) Deci
 	}
 	if !stringInList(constraints["registers"], register) {
 		return Decision{Allowed: false, Reason: "register is not permitted"}
+	}
+	return Decision{Allowed: true}
+}
+
+func authorizeSOAPCall(constraints map[string]any, params map[string]any) Decision {
+	endpoint, _ := params["endpoint"].(string)
+	operation, _ := params["operation"].(string)
+	if !stringInList(constraints["endpoints"], endpoint) {
+		return Decision{Allowed: false, Reason: "endpoint is not permitted"}
+	}
+	if !stringInList(constraints["operations"], operation) {
+		return Decision{Allowed: false, Reason: "operation is not permitted"}
 	}
 	return Decision{Allowed: true}
 }

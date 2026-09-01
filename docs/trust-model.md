@@ -134,6 +134,84 @@ grant that *can* browse a folder still won't see children outside its own
 scope in the results — narrowing the browse start node doesn't widen what
 comes back.
 
+## SOAP is a seventh capability, and a different kind of trust
+
+This project's own handoff notes fixed the capability set early —
+*"Six capabilities, no more"* — as a deliberate scope discipline.
+`soap.call` (`call_soap`) breaks that
+count. It exists because plenty of legacy ERP/MES/historian systems only
+ever exposed a SOAP/WSDL interface and never will get anything else, and
+some deployments genuinely need to reach one. Breaking the "six, no more"
+line is worth being upfront about rather than quietly expanding scope.
+
+More importantly, `soap.call` asks for a kind of trust nothing else in
+this document does. Every other capability's "read-only" claim is backed
+by something FieldLink can check on the wire:
+
+- `fs.read`/`fs.list` — the filesystem call itself is a read
+- `db.query` — a statement-type parser rejects anything but `SELECT`/`WITH`
+- `http.request` — only GET/HEAD are ever sent, never anything else
+- `device.modbus.read` — function codes 5/6/15/16 aren't in the codebase
+
+`soap.call` has no equivalent check available. SOAP is RPC over HTTP POST
+with an XML body; the HTTP verb carries no information about whether the
+*operation* has a side effect. An operation literally named
+`GetAccountStatus` can, on some legacy service, log the query, refresh a
+session token, or worse — FieldLink has no protocol-level way to tell.
+
+The design response is the same one `db.query` already uses for its own
+un-checkable case (SECURITY.md: *"a too-permissive database user defeats
+this — use a read-only account"*): push the responsibility to the
+operator, explicitly, rather than pretend a guarantee exists that doesn't.
+Concretely:
+
+- Every callable operation is a **named, pre-declared XML template** in
+  `config.yaml` — there is no WSDL parsing and no way for a model to
+  construct or send arbitrary SOAP XML. The operator writes the exact
+  envelope that will be sent, and only ever that envelope, with parameter
+  values substituted into it.
+- Declaring an operation here **is an attestation** that it's read-only.
+  FieldLink cannot verify that claim independently. If you haven't
+  confirmed an operation has no side effect against the actual legacy
+  system, don't declare it.
+
+  ```yaml
+  soap_endpoints:
+    legacy_erp:
+      url: "https://erp.internal/InventoryService.asmx"
+      timeout: 5s
+      username_env: ERP_SOAP_USER   # HTTP Basic auth; optional
+      password_env: ERP_SOAP_PASS
+      operations:
+        GetItemStatus:
+          soap_action: "http://legacy.example/GetItemStatus"
+          template: |
+            <?xml version="1.0" encoding="utf-8"?>
+            <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+              <soap:Body>
+                <GetItemStatus xmlns="http://legacy.example/">
+                  <ItemCode>{{.ItemCode}}</ItemCode>
+                </GetItemStatus>
+              </soap:Body>
+            </soap:Envelope>
+  ```
+
+  A `call_soap` request supplies `endpoint`, `operation`, and a
+  `params` map — here, `{"ItemCode": "WIDGET-42"}` — which fills the
+  `{{.ItemCode}}` placeholder. A parameter the template doesn't
+  reference is ignored; a placeholder with no matching parameter fails
+  the call outright rather than sending an empty element.
+- Parameter *values* are XML-escaped before substitution
+  (`encoding/xml.EscapeText`), so a value can never break out of its
+  element and inject sibling content into the envelope — the template's
+  *structure* is fixed regardless of what a caller sends; only text
+  content varies. This is enforced in code and tested against a real
+  XML-injection attempt, unlike the read-only claim above, which isn't.
+
+If your legacy system's SOAP service is a facade over a database you can
+also reach directly, prefer `db.query` — it has an actual enforced
+guarantee `soap.call` cannot offer.
+
 ## Reporting a finding
 
 See [SECURITY.md](../SECURITY.md).

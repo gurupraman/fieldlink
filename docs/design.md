@@ -359,7 +359,13 @@ process engineers, not prompt engineers. They should not have to know how to ask
 
 ## 5. Capabilities
 
-All six are read-only. Each maps to exactly one MCP tool.
+All seven are read-only. Each maps to exactly one MCP tool. The original plan
+(and HANDOFF.md's "six capabilities, no more") fixed the count at six;
+`soap.call` was added post-launch for legacy SOAP/WSDL-only systems and is
+called out explicitly as a scope exception, not folded in silently — see
+docs/trust-model.md § SOAP is a seventh capability, and a different kind of
+trust for why it can't offer the same enforced read-only guarantee the other
+six do.
 
 | Capability | Tool | Key parameters | Returns |
 |---|---|---|---|
@@ -368,7 +374,8 @@ All six are read-only. Each maps to exactly one MCP tool.
 | `db.query` | `query_database` | `datasource`, `sql`, `params[]`, `max_rows` | typed rows |
 | `http.request` | `call_internal_http` | `url`, `method` (GET/HEAD), `headers` | status, headers, body |
 | `device.modbus.read` | `read_modbus` | `device`, `register` \| (`fc`,`address`,`count`) | decoded value + raw words |
-| `device.opcua.read` | `read_opcua` | `endpoint`, `node_ids[]` | values, timestamps, status codes |
+| `device.opcua.read` | `read_opcua`, `browse_opcua` | `endpoint`, `node_ids[]` \| `node_id` | values, timestamps, status codes; or child node list |
+| `soap.call` | `call_soap` | `endpoint`, `operation`, `params{}` | raw XML response |
 
 ### 5.1 Executor notes
 
@@ -841,7 +848,8 @@ distribution work at all.
 | `db.query` | `datasources[]`, `max_rows` | Named lookup + statement-type parse |
 | `http.request` | `cidrs[]`, `methods[]` | Match after DNS resolution, re-checked per redirect |
 | `device.modbus.read` | `devices[]`, `registers[]` | Named register lookup; FC restricted to 1–4 |
-| `device.opcua.read` | `endpoints[]`, `node_prefixes[]` | Node ID prefix match |
+| `device.opcua.read` | `endpoints[]`, `node_prefixes[]` | Node ID prefix match (applies to both `read_opcua`'s node ids and `browse_opcua`'s start node + returned children) |
+| `soap.call` | `endpoints[]`, `operations[]` | Named exact-match lookup; the operation itself is an operator attestation of read-only, not something enforced from the wire — see docs/trust-model.md |
 
 ## Appendix B — MCP methods implemented
 

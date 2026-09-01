@@ -16,6 +16,7 @@ import (
 	opcuaexec "github.com/gurupraman/fieldlink/internal/exec/device/opcua"
 	fsexec "github.com/gurupraman/fieldlink/internal/exec/fs"
 	httpexec "github.com/gurupraman/fieldlink/internal/exec/httpx"
+	soapexec "github.com/gurupraman/fieldlink/internal/exec/soap"
 	"github.com/gurupraman/fieldlink/internal/policy"
 )
 
@@ -53,6 +54,7 @@ func New(eng policy.Engine, cfg *config.Config) *gosdk.Server {
 	modbusExec := modbusexec.NewExecutor(eng, cfg.Devices)
 	opcuaExec := opcuaexec.NewExecutor(eng, cfg.OPCUAEndpoints)
 	httpExec := &httpexec.Executor{Policy: eng}
+	soapExec := soapexec.NewExecutor(eng, cfg.SOAPEndpoints)
 	dbExec := dbexec.NewExecutor(eng, cfg.Datasources)
 
 	// A capability absent from the grant must never appear in tools/list
@@ -174,6 +176,25 @@ func New(eng policy.Engine, cfg *config.Config) *gosdk.Server {
 				OpenWorldHint:   boolPtr(false),
 			},
 		}, dbExec.QueryDatabase)
+	}
+
+	if eng.Granted("soap.call") {
+		gosdk.AddTool(s, &gosdk.Tool{
+			Name:  "call_soap",
+			Title: "Call legacy SOAP operation",
+			Description: "Invoke a named, pre-declared SOAP operation against a configured " +
+				"legacy endpoint. Only operations the operator has explicitly declared in " +
+				"config.yaml (as a fixed XML template) can be called — there is no WSDL " +
+				"parsing and no arbitrary XML. Unlike FieldLink's other tools, read-only " +
+				"here is an operator attestation about the declared operation, not something " +
+				"enforced from the wire the way SELECT-only SQL or HTTP GET are.",
+			Annotations: &gosdk.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: boolPtr(false),
+				IdempotentHint:  false,
+				OpenWorldHint:   boolPtr(true),
+			},
+		}, soapExec.CallSOAP)
 	}
 
 	registerResources(s, eng, cfg, dbExec)
