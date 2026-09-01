@@ -35,9 +35,13 @@ as tools — under a permission model the AI cannot alter.
 No hardware required. `fieldlink demo` starts a simulated PLC, signs a throwaway grant, and
 prints the config block to paste.
 
+No tagged release exists yet, so there's no install script or prebuilt binary — build from
+source (requires Go 1.24+):
+
 ```bash
-curl -sSL https://get.fieldlink.dev | sh
-fieldlink demo
+git clone https://github.com/gurupraman/fieldlink.git
+cd fieldlink && go build -o fieldlink ./cmd/fieldlink
+./fieldlink demo
 ```
 
 Then add it to your MCP client:
@@ -50,21 +54,23 @@ Then add it to your MCP client:
 }
 ```
 
+(Use the full path to the binary you just built, or put it on your `PATH`.)
+
 Ask your agent: *"What's the boiler temperature on line 2?"*
 
 <details>
 <summary>Other install methods</summary>
 
 ```bash
-# Debian / Ubuntu
-curl -sSL https://get.fieldlink.dev/fieldlink.deb -o fieldlink.deb && sudo dpkg -i fieldlink.deb
-
-# Raspberry Pi / ARM64 / ARMv7 — grab the matching binary from Releases
-# Go
+# Go, without cloning first — resolves to the latest commit on main
+# since no versioned release has been tagged yet
 go install github.com/gurupraman/fieldlink/cmd/fieldlink@latest
 ```
 
-Every release ships checksums, an SBOM, and a cosign signature.
+Once a version is tagged, CI cross-compiles `linux/amd64`, `linux/arm64`, `linux/arm/v7`, and
+`windows/amd64`, and publishes checksums, an SBOM, and a cosign signature for each — see
+[Releases](https://github.com/gurupraman/fieldlink/releases). Nothing has been tagged yet, so
+that page is currently empty.
 </details>
 
 ## What it reaches
