@@ -138,7 +138,7 @@ Full walkthrough — all three auth modes, TLS setup, and the exact-origin CORS 
 | System | Tool | Notes |
 |---|---|---|
 | Modbus TCP / RTU | `read_modbus` | Function codes 1–4. Symbolic register names from a register map. |
-| OPC-UA | `read_opcua` | Anonymous and username auth. Reads node IDs you already know — no browse/discovery tool yet. |
+| OPC-UA | `read_opcua`, `browse_opcua` | Anonymous and username auth. `browse_opcua` needs a grant `node_prefixes` entry that also covers the parent folder node, not just the leaf — see [trust-model.md](docs/trust-model.md#opc-ua-node-prefixes-and-browsing). |
 | SMB shares | `read_file`, `list_directory` | Pure-Go SMB2. No kernel mount, no root. Via `smb://<share-name>/<path>`. |
 | MSSQL, Oracle, Postgres | `query_database` | Named datasources only. `SELECT`/`WITH` only. |
 | Internal HTTP | `call_internal_http` | GET and HEAD, restricted to allow-listed CIDRs. |

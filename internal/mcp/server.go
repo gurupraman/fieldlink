@@ -127,6 +127,21 @@ func New(eng policy.Engine, cfg *config.Config) *gosdk.Server {
 				OpenWorldHint:   boolPtr(false),
 			},
 		}, opcuaExec.ReadOPCUA)
+
+		gosdk.AddTool(s, &gosdk.Tool{
+			Name:  "browse_opcua",
+			Title: "Browse OPC-UA nodes",
+			Description: "List the children of an OPC-UA node, so the model can discover " +
+				"node IDs it doesn't already know instead of guessing. Scoped the same way " +
+				"as read_opcua: both the node being browsed and every child returned must " +
+				"fall within the grant's node_prefixes. Read-only.",
+			Annotations: &gosdk.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: boolPtr(false),
+				IdempotentHint:  true,
+				OpenWorldHint:   boolPtr(false),
+			},
+		}, opcuaExec.BrowseOPCUA)
 	}
 
 	if eng.Granted("http.request") {

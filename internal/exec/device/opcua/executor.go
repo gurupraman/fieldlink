@@ -9,10 +9,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	gopcua "github.com/gopcua/opcua"
+	"github.com/gopcua/opcua/id"
 	"github.com/gopcua/opcua/ua"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -116,6 +118,98 @@ func (e *Executor) ReadOPCUA(ctx context.Context, _ *gomcp.CallToolRequest, in R
 	}
 
 	return nil, ReadOPCUAOutput{Endpoint: in.Endpoint, Results: results}, nil
+}
+
+type BrowseOPCUAInput struct {
+	Endpoint string `json:"endpoint" jsonschema:"configured OPC-UA endpoint name"`
+	NodeID   string `json:"node_id" jsonschema:"OPC-UA node ID to browse the children of, e.g. ns=2;s=Boiler"`
+}
+
+type OPCUAChildNode struct {
+	NodeID     string `json:"node_id"`
+	BrowseName string `json:"browse_name"`
+	NodeClass  string `json:"node_class"`
+}
+
+type BrowseOPCUAOutput struct {
+	Endpoint string           `json:"endpoint"`
+	NodeID   string           `json:"node_id"`
+	Children []OPCUAChildNode `json:"children"`
+}
+
+// BrowseOPCUA lists the children of a node. It reuses device.opcua.read's
+// own grant capability and node_prefixes constraint rather than adding a
+// new one — design.md always described browse as part of read_opcua's
+// scope ("browse yes"). The browse *start* node must itself satisfy
+// node_prefixes, the same way each node id in ReadOPCUA does: a grant
+// scoped to one subtree lets a caller browse within it, not discover the
+// server's entire node tree by starting from the root and filtering
+// afterward. Returned children are also filtered against node_prefixes —
+// otherwise a scoped grant would still leak the names/IDs of nodes outside
+// its own scope through browse results, defeating the point of scoping it.
+func (e *Executor) BrowseOPCUA(ctx context.Context, _ *gomcp.CallToolRequest, in BrowseOPCUAInput) (*gomcp.CallToolResult, BrowseOPCUAOutput, error) {
+	if in.Endpoint == "" || in.NodeID == "" {
+		return denied("endpoint and node_id are required"), BrowseOPCUAOutput{}, nil
+	}
+
+	ep, ok := e.Endpoints[in.Endpoint]
+	if !ok {
+		return denied("endpoint is not configured"), BrowseOPCUAOutput{}, nil
+	}
+
+	decision := e.Policy.Authorize(ctx, "device.opcua.read", map[string]any{
+		"endpoint": in.Endpoint,
+		"node_ids": []string{in.NodeID},
+	})
+	if !decision.Allowed {
+		return denied(decision.Reason), BrowseOPCUAOutput{}, nil
+	}
+
+	startID, err := ua.ParseNodeID(in.NodeID)
+	if err != nil {
+		return denied("node_id is not valid"), BrowseOPCUAOutput{}, nil
+	}
+
+	client, err := e.clientFor(ctx, in.Endpoint, ep)
+	if err != nil {
+		return denied("could not connect to endpoint"), BrowseOPCUAOutput{}, nil
+	}
+
+	refs, err := client.Node(startID).References(ctx, id.HierarchicalReferences, ua.BrowseDirectionForward, ua.NodeClassAll, true)
+	if err != nil {
+		e.resetConn(in.Endpoint)
+		return denied("browse failed"), BrowseOPCUAOutput{}, nil
+	}
+
+	allowedPrefixes := e.Policy.GrantedValues("device.opcua.read", "node_prefixes")
+
+	var children []OPCUAChildNode
+	for _, ref := range refs {
+		childID := ref.NodeID.String()
+		if allowedPrefixes != nil && !hasAnyPrefix(childID, allowedPrefixes) {
+			continue
+		}
+		name := ""
+		if ref.BrowseName != nil {
+			name = ref.BrowseName.Name
+		}
+		children = append(children, OPCUAChildNode{
+			NodeID:     childID,
+			BrowseName: name,
+			NodeClass:  ref.NodeClass.String(),
+		})
+	}
+
+	return nil, BrowseOPCUAOutput{Endpoint: in.Endpoint, NodeID: in.NodeID, Children: children}, nil
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Executor) clientFor(ctx context.Context, name string, ep config.OPCUAEndpoint) (*gopcua.Client, error) {

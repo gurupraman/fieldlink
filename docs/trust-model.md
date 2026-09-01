@@ -104,6 +104,36 @@ moment a grant expires mid-session; the advertised `tools/list` can lag
 briefly until the next list request. This is a known, deliberate scope cut
 for v0.1, not a gap in enforcement.
 
+## OPC-UA node prefixes and browsing
+
+`device.opcua.read`'s `node_prefixes` constraint (§6.3's grant format) is
+plain string-prefix matching against the OPC-UA node ID — nothing OPC-UA-
+aware about namespaces or the node hierarchy. This has a consequence worth
+knowing before you write a grant: **a prefix scoped to one leaf node can
+read that node, but can never browse anything, including the folder it
+lives directly under.**
+
+The reason is mechanical. OPC-UA's standard node-tree entry point is a
+per-namespace "Objects" folder, conventionally addressed as `ns=<N>;i=85`.
+A grant with only `node_prefixes: ["ns=2;s=BoilerTemp"]` authorizes reading
+that one variable — but `browse_opcua`'s starting node is checked against
+the same prefix list the same way every node ID in `read_opcua` is, and the
+string `"ns=2;i=85"` does not start with `"ns=2;s=BoilerTemp"`. The browse
+is denied outright, not silently emptied.
+
+**If you want browsing to work, scope the prefix higher** — a
+namespace-level entry like `"ns=2;"` covers both the Objects folder and
+every leaf node beneath it, at the cost of also authorizing discovery of
+whatever else lives in that namespace. That trade — broader browse access
+in exchange for not having to enumerate every leaf node ID by hand — is a
+real judgment call for whoever signs the grant, not something FieldLink
+resolves for you.
+
+Returned children are filtered against the same `node_prefixes` list, so a
+grant that *can* browse a folder still won't see children outside its own
+scope in the results — narrowing the browse start node doesn't widen what
+comes back.
+
 ## Reporting a finding
 
 See [SECURITY.md](../SECURITY.md).
