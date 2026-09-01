@@ -13,6 +13,11 @@ Modbus, OPC-UA, SMB shares, on-prem SQL. One static Go binary. No Docker, no Kub
 
 ---
 
+**Nothing here writes.** The Modbus/OPC-UA/SQL/filesystem write paths aren't disabled — they
+aren't in the codebase. Every call is checked against an offline-signed permission grant, on
+every call, not once at startup. If that's the question on your mind before anything else,
+see [Read-only by design](#read-only-by-design) and [Trust model](#trust-model) first.
+
 > [!WARNING]
 > **Status: pre-alpha.** The design is complete and the build is in progress. Nothing here is
 > production-ready yet. Watch the repo or open an issue if you want to be told when it is.
