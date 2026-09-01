@@ -73,6 +73,66 @@ Once a version is tagged, CI cross-compiles `linux/amd64`, `linux/arm64`, `linux
 that page is currently empty.
 </details>
 
+## Running the binary and the MCP client on different machines
+
+The quickstart above uses stdio: the MCP client *spawns* `fieldlink` as a local child process,
+so both have to be on the same machine. A real deployment usually isn't that — `fieldlink` runs
+on a plant gateway (Windows or Linux), the MCP client is an engineer's laptop or a cloud-hosted
+agent, somewhere else entirely. Switch to the HTTP transport for that.
+
+**1. On the machine that will run `fieldlink`** — write `config.yaml`:
+
+```yaml
+agent_id: fieldlink-gw01
+
+server:
+  transport: http
+  http:
+    bind: 0.0.0.0:8765
+    tls:
+      cert_file: /etc/fieldlink/tls/server.crt
+      key_file: /etc/fieldlink/tls/server.key
+    bearer_token_env: FIELDLINK_BEARER_TOKEN
+
+grant:
+  path: /etc/fieldlink/grant.yaml
+  trusted_key: /etc/fieldlink/trusted.pub
+```
+
+**2. Start it:**
+
+```bash
+export FIELDLINK_BEARER_TOKEN="$(openssl rand -hex 32)"
+fieldlink serve --config config.yaml --allow-remote
+```
+
+`--allow-remote` is required the moment `bind` isn't a loopback address — `fieldlink` refuses to
+start otherwise, and this can't be bypassed from config alone (it's a CLI flag on purpose). TLS
+and an auth mechanism are both mandatory once you leave loopback — there is no unauthenticated
+remote mode. The example above uses a static bearer token; FieldLink also supports OAuth against
+your own identity provider (Okta, Azure AD, Auth0, Keycloak) or, if you have none, its own
+built-in token issuer — see the full walkthrough linked below.
+
+**3. On the machine running the MCP client** — point it at the server's URL instead of a spawn
+command:
+
+```json
+{
+  "mcpServers": {
+    "fieldlink": {
+      "url": "https://gateway-host:8765/mcp",
+      "headers": { "Authorization": "Bearer <the same token>" }
+    }
+  }
+}
+```
+
+(Exact config shape for a URL-based MCP server varies by client — check its docs. The endpoint
+is always `/mcp`.)
+
+Full walkthrough — all three auth modes, TLS setup, and the exact-origin CORS caveat — is in
+[docs/quickstart.md § Remote deployment](docs/quickstart.md#remote-deployment-mcp-client-and-binary-on-different-machines).
+
 ## What it reaches
 
 | System | Tool | Notes |
