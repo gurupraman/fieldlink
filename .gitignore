@@ -20,3 +20,7 @@ trusted.pub
 !examples/**/trusted.pub
 
 .DS_Store
+
+# Claude Code session/tooling state — local to whoever's running an agent
+# against this repo, not project content.
+.claude/

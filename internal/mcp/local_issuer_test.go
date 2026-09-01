@@ -227,11 +227,24 @@ func requestToken(baseURL, clientID, clientSecret, scope string) (*tokenResponse
 		return nil, err
 	}
 	defer resp.Body.Close()
+	// Always drain before returning, on every path, including the error
+	// one below — an early return here left the body unread with only
+	// the deferred Close() running, which is the same undrained-Close
+	// hazard as the /mcp case (see TestRunHTTP_TLS's comment), just on
+	// an endpoint that's easy to overlook because its response is small.
+	// This function's two error-path callers in
+	// TestHTTPTransport_LocalIssuerEndToEnd were the actual reproduction
+	// for a Windows CI failure that persisted even after fixing the /mcp
+	// request — draining the /mcp body wasn't the whole story.
+	body, readErr := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("token request failed with status %d", resp.StatusCode)
 	}
+	if readErr != nil {
+		return nil, readErr
+	}
 	var tok tokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tok); err != nil {
+	if err := json.Unmarshal(body, &tok); err != nil {
 		return nil, err
 	}
 	return &tok, nil
@@ -243,6 +256,7 @@ func waitForServer(t *testing.T, addr string) {
 	for time.Now().Before(deadline) {
 		conn, err := (&http.Client{Timeout: 50 * time.Millisecond}).Get("http://" + addr + "/oauth/jwks")
 		if err == nil {
+			io.Copy(io.Discard, conn.Body)
 			conn.Body.Close()
 			return
 		}
